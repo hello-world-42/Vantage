@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "workspaces": ["shared", "frontend", "backend"],
+  "engines": { "node": ">=20.19.0" },
   "scripts": {
     "dev:frontend": "npm run dev -w frontend",
     "build:frontend": "npm run build -w frontend",
