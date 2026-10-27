@@ -17,6 +17,9 @@ interface GlobeProps {
 }
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+// satellite-streets draws land/ocean from a satellite *imagery* layer. If that imagery
+// doesn't load, swap to a vector style, e.g. 'mapbox://styles/mapbox/outdoors-v12'.
+const MAP_STYLE = 'mapbox://styles/mapbox/outdoors-v12';
 // .env.example ships with a placeholder; treat it the same as "not set".
 const TOKEN_MISSING = !MAPBOX_TOKEN || MAPBOX_TOKEN.includes('your_public_token');
 const NO_PADDING: mapboxgl.PaddingOptions = { top: 0, right: 0, bottom: 0, left: 0 };
@@ -60,7 +63,7 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
     try {
       map = new mapboxgl.Map({
         container,
-        style: 'mapbox://styles/mapbox/satellite-streets-v12',
+        style: MAP_STYLE,
         projection: 'globe',
         center: [0, 20],
         zoom: 1.6,
@@ -75,7 +78,14 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
     mapRef.current = map;
 
     map.on('error', (e) => {
-      console.error('[Globe] map error', e.error);
+      // Name the failing source/URL so tile problems are diagnosable from the console.
+      const evt = e as unknown as { sourceId?: string; error?: { status?: number; url?: string; message?: string } };
+      console.error('[Globe] map error', {
+        source: evt.sourceId,
+        status: evt.error?.status,
+        url: evt.error?.url,
+        message: evt.error?.message,
+      });
       const status = (e.error as { status?: number } | undefined)?.status;
       if (status === 401 || status === 403) {
         setMapError('Mapbox rejected the access token (' + status + '). Check VITE_MAPBOX_TOKEN and any URL restrictions on the token.');
