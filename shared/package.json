@@ -6,5 +6,8 @@
   "exports": {
     ".": "./src/contract.ts",
     "./schemas": "./src/schemas.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
   }
 }
