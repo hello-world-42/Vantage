@@ -204,7 +204,7 @@ Vantage/
 │           ├── weather/         ⬜ openMeteo.client.ts, weather.service.ts
 │           ├── airQuality/      ⬜ airQuality.service.ts, openAq.client.ts, openMeteoAirQuality.client.ts
 │           ├── astronomy/       ⬜ astronomy.service.ts, astronomyApi.client.ts, suncalc.service.ts
-│           ├── hazards/         ⬜ hazards.service.ts, usgsQuakes, nwsAlerts, nasaFirms, gvpVolcano clients
+│           ├── hazards/         ✅ nwsAlerts.client.ts (local, standalone) · ⬜ hazards.service.ts, usgsQuakes, nasaFirms, gvpVolcano clients
 │           ├── ocean/           ⬜ ocean.service.ts, openMeteoMarine.client.ts
 │           ├── space/           ⬜ space.service.ts, n2yo, launchLibrary, noaaSwpc clients
 │           └── staticData/      ⬜ staticData.service.ts
@@ -306,6 +306,16 @@ Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `
 
 ## 6. Completed
 
+### Standalone NWS client completed locally on 2026-10-29
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Branch:** `feature/nws-alerts-client`. Local work only; not committed, pushed, or merged.
+- **Files:** `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts`.
+- **Handoff:** call `fetchNwsAlerts({ lat, lng, countryCode }, { userAgent })` with an explicit ISO country code and configured User-Agent supplied by the caller. This client never loads environment files or reads `process.env`. The current scope is country code `US`; other country codes return `not_applicable` without a request. Do not infer US coverage using a rectangular coordinate boundary.
+- **Output:** provider result `{ status: 'ok', source: 'NWS', alerts }` (an empty list means no active alerts) or `{ status: 'not_applicable', source: 'NWS', reason }`. Failures throw `NwsClientError` with `code` and an optional HTTP `status`; upstream bodies and caller contact details are not included in errors.
+- **Integration remains with Lance:** wrap provider results/errors in the final shared `ModuleResult`, register the provider and add caching. No aggregator, registry, shared contract, route, or hazards service was changed for this task.
+- **Checks:** 12 tests passed; workspace typechecks, backend build, and test typecheck passed. A live Atlanta request succeeded with zero active alerts using a non-secret validation User-Agent. Run tests from the repo root with `node --import tsx --test backend/tests/nwsAlerts.client.test.ts`.
+
 | Date | Who | What | Key files |
 |---|---|---|---|
 | 2026-09-29 | Lance | Initial repo + folder skeleton | all placeholder files |
@@ -350,5 +360,7 @@ Claim an item by moving it to Section 5 with your files.
 ## 9. Change Log
 
 > Add one line per change: `YYYY-MM-DD · Name (GitHub) · agent-assisted? · what changed`
+
+- 2026-10-29 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented and tested the standalone NWS point-alert client on `feature/nws-alerts-client`; explicit User-Agent/country inputs, no environment-file access, no aggregation integration. Local only, not committed or pushed.
 
 - 2026-10-27 · Lance Santiago (LanceSan04) · agent-assisted · Created SPEC.md from the current `dev` branch, sprint plan and design decisions.
