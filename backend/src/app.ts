@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import { authRouter } from "./routes/auth.js";
+import { favoritesRouter } from "./routes/favorites.js";
 
 /**
  * Builds the Express app without starting a server.
@@ -22,7 +24,10 @@ export function createApp() {
     res.json({ ok: true, service: "vantage-backend", time: new Date().toISOString() });
   });
 
-  // Routes (location, geocode, auth, favorites, ...) get mounted here as they're built.
+  app.use("/api/auth", authRouter);
+  app.use("/api/favorites", favoritesRouter);
+
+  // Routes (location, geocode, profile, ...) get mounted here as they're built.
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });

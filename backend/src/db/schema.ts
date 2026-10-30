@@ -2,7 +2,8 @@ export interface User {
     user_id: number;
     username: string;
     email: string;
-    password_hash: string;
+    password_hash: string | null;
+    google_sub: string | null;
     role: "user" | "admin";
     created_at: Date;
   }
@@ -13,8 +14,8 @@ export interface User {
     label: string;
     latitude: number;
     longitude: number;
-    country: string;
-    city: string;
+    country: string | null;
+    city: string | null;
     saved_at: Date;
   }
   
