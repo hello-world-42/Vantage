@@ -2,7 +2,7 @@
 
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
-Last updated: 2026-10-27 by Lance Santiago (LanceSan04)
+Last updated: 2026-10-29 by Lance Santiago (LanceSan04)
 
 ---
 
@@ -155,7 +155,7 @@ Relationships: users 1 → 0..* favorite_locations ("saves"); users 0..1 → 0..
 |---|---|---|---|
 | GET | `/api/health` | — | ✅ Done |
 | GET | `/api/geocode?q=` | — | ❌ Route missing (client exists) |
-| GET | `/api/location?lat=&lng=` | — | ❌ Not started |
+| GET | `/api/location?lat=&lng=[&country=]` | — | ✅ Done (hazards module only: NWS alerts) |
 | GET | `/api/random` | — | ❌ Not started |
 | POST | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | — | ❌ Not started |
 | GET | `/api/auth/google`, `/api/auth/google/callback` | — | ❌ Not started |
@@ -180,31 +180,32 @@ Vantage/
 ├── tsconfig.base.json           ✅ shared strict TS settings
 │
 ├── shared/                      @vantage/shared
-│   ├── package.json             ✅ exports ./src/contract.ts and ./schemas
+│   ├── package.json             ✅ exports ./src/contract.ts and ./schemas; depends on zod 4
 │   ├── tsconfig.json            ✅
 │   └── src/
-│       ├── contract.ts          ✅ GeocodeResult, GeocodeResponse (ModuleResult etc. still to add)
-│       └── schemas.ts           ⬜ zod input schemas
+│       ├── contract.ts          ✅ GeocodeResult, ModuleId, ModuleStatus, ModuleResult<T>, GridCell, LocationResponse
+│       └── schemas.ts           ✅ zod: locationQuerySchema, geocodeQuerySchema
 │
 ├── backend/                     @vantage/backend
 │   ├── package.json             ✅ express, helmet, cors, dotenv, zod 4, tsx
 │   ├── tsconfig.json            ✅
+│   ├── tests/                   ✅ node:test suites (aggregator, cache, grid, location route, NWS client)
 │   └── src/
-│       ├── app.ts               ✅ helmet, CORS, JSON, /api/health, 404
-│       ├── server.ts            ✅ loads root .env, listen(PORT)
-│       ├── config/env.ts        ⬜
-│       ├── aggregator/          ⬜ aggregateLocation.ts, moduleRegistry.ts
-│       ├── cache/               ⬜ cache.ts, memoryCache.ts, redisCache.ts, ttlPolicy.ts
-│       ├── lib/                 ⬜ geo.ts, grid.ts, http.ts, singleflight.ts, throttle.ts
+│       ├── app.ts               ✅ helmet, CORS, JSON, /api/health, wires aggregator + /api/location, 404
+│       ├── server.ts            ✅ listen(env.PORT)
+│       ├── config/env.ts        ✅ loads root .env, validates with zod, exports typed `env`
+│       ├── aggregator/          ✅ moduleRegistry.ts (hazards/NWS registered), aggregateLocation.ts
+│       ├── cache/               ✅ cache.ts, memoryCache.ts, ttlPolicy.ts · ⬜ redisCache.ts
+│       ├── lib/                 ✅ grid.ts, singleflight.ts · ⬜ geo.ts, http.ts, throttle.ts
 │       ├── middleware/          ⬜ authenticate, errorHandler, rateLimit, requireRole, validate
-│       ├── routes/              ⬜ admin, auth, favorites, geocode, location, profile, random
+│       ├── routes/              ✅ location.ts · ⬜ admin, auth, favorites, geocode, profile, random
 │       ├── db/                  ⬜ client.ts, schema.ts, migrations/ 📁
 │       └── modules/
 │           ├── geo/             ✅ mapboxGeocoding.client.ts · ⬜ geo.service.ts, randomLocation.service.ts
 │           ├── weather/         ⬜ openMeteo.client.ts, weather.service.ts
 │           ├── airQuality/      ⬜ airQuality.service.ts, openAq.client.ts, openMeteoAirQuality.client.ts
 │           ├── astronomy/       ⬜ astronomy.service.ts, astronomyApi.client.ts, suncalc.service.ts
-│           ├── hazards/         ✅ nwsAlerts.client.ts (local, standalone) · ⬜ hazards.service.ts, usgsQuakes, nasaFirms, gvpVolcano clients
+│           ├── hazards/         ✅ nwsAlerts.client.ts (registered as the hazards module) · ⬜ hazards.service.ts, usgsQuakes, nasaFirms, gvpVolcano clients
 │           ├── ocean/           ⬜ ocean.service.ts, openMeteoMarine.client.ts
 │           ├── space/           ⬜ space.service.ts, n2yo, launchLibrary, noaaSwpc clients
 │           └── staticData/      ⬜ staticData.service.ts
@@ -253,6 +254,10 @@ npm run dev               # backend :3000 + frontend :5173
 
 Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `npm run typecheck`.
 
+Backend tests (from the repo root; a root `npm test` script is coming): `node --import tsx --test backend/tests/*.test.ts`
+
+Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&country=US` (needs `NWS_USER_AGENT` in `.env`).
+
 ---
 
 ## 5. In Progress (claimed files: don't touch unless you're the owner)
@@ -260,19 +265,23 @@ Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `
 > Format: **Owner** · branch · started · goal · exact files. Remove your entry when done and move it to Section 6.
 > Entries marked *(from sprint plan, confirm)* were assigned in the sprint plan but the owner hasn't confirmed the claim yet. Owners: confirm or edit your entry.
 
-### Lance Santiago (LanceSan04): backend core
-- **Branch:** `feature/backend-core` · **Started:** 2026-10-27
-- **Goal:** env validation, shared data contract, module registry/aggregator with `/api/location`, cache layer.
+### Lance Santiago (LanceSan04): foundation cleanup
+- **Branch:** `feature/backend-core` · **Started:** 2026-10-29
+- **Goal:** root `npm test` script, JSON error handler, README setup steps. (Backend core steps 1–6 are done; see Section 6.)
 - **Files:**
-  - `backend/src/config/env.ts`
-  - `shared/src/contract.ts` (**adding** `ModuleStatus`, `ModuleResult<T>`, `ModuleId`, `LocationResponse`, `WeatherData`; existing geocode types stay)
-  - `shared/src/schemas.ts`
-  - `backend/src/aggregator/moduleRegistry.ts`, `backend/src/aggregator/aggregateLocation.ts`
-  - `backend/src/routes/location.ts`
-  - `backend/src/lib/grid.ts`, `backend/src/lib/singleflight.ts`, `backend/src/lib/http.ts`
-  - `backend/src/cache/cache.ts`, `backend/src/cache/memoryCache.ts`, `backend/src/cache/ttlPolicy.ts`
-  - `backend/src/app.ts` (mounting routes only)
+  - `package.json` (root, scripts only)
+  - `backend/src/middleware/errorHandler.ts`
   - `README.md`
+- **Shared integration points Lance maintains** (other owners may add their *own* entry, then tell Lance):
+  - `shared/src/contract.ts`: add a new `ModuleId` when you add a module. Put your module's data type in your own file under `shared/src/modules/` instead of editing the envelope types.
+  - `backend/src/aggregator/moduleRegistry.ts`: add your module's entry to `createModuleRegistry()`. Don't change the aggregator itself.
+  - `backend/src/cache/ttlPolicy.ts`: one line per module.
+
+**How to add a data module** (the contract every module follows):
+1. Write the client in `backend/src/modules/<area>/`. Return `{ status: "ok", source, data }` or `{ status: "not_applicable", source?, reason }`, and **throw** on failure. Don't read `process.env`; take keys as arguments.
+2. Add an entry in `moduleRegistry.ts` with `id`, `label`, `scope` (`cell` / `global` / `us-only`), `ttlSeconds` (from `ttlPolicy.ts`) and `fetch(context)`. Use `context.cell.lat/lng` (the cell center), not the raw click.
+3. Pass any key it needs from `env` in `app.ts` → `createModuleRegistry({...})`.
+4. The aggregator handles caching, singleflight, timeouts (8 s), the disabled check and turning throws into `{ status: "error" }`.
 
 ### Aamir Mohammad: database and auth *(from sprint plan, confirm)*
 - **Branch:** `feature/database-setup` · **Started:** 2026-10-15
@@ -306,14 +315,14 @@ Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `
 
 ## 6. Completed
 
-### Standalone NWS client completed locally on 2026-10-29
+### Standalone NWS client completed on 2026-10-29
 
 - **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
-- **Branch:** `feature/nws-alerts-client`. Local work only; not committed, pushed, or merged.
+- **Branch:** `feature/nws-alerts-client`, pushed to GitHub (commit `4eaacd3`).
 - **Files:** `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts`.
 - **Handoff:** call `fetchNwsAlerts({ lat, lng, countryCode }, { userAgent })` with an explicit ISO country code and configured User-Agent supplied by the caller. This client never loads environment files or reads `process.env`. The current scope is country code `US`; other country codes return `not_applicable` without a request. Do not infer US coverage using a rectangular coordinate boundary.
 - **Output:** provider result `{ status: 'ok', source: 'NWS', alerts }` (an empty list means no active alerts) or `{ status: 'not_applicable', source: 'NWS', reason }`. Failures throw `NwsClientError` with `code` and an optional HTTP `status`; upstream bodies and caller contact details are not included in errors.
-- **Integration remains with Lance:** wrap provider results/errors in the final shared `ModuleResult`, register the provider and add caching. No aggregator, registry, shared contract, route, or hazards service was changed for this task.
+- **Integration:** done by Lance on 2026-10-29. The client is registered as the `hazards` module in `moduleRegistry.ts`, wrapped in `ModuleResult` and cached per cell + country by the aggregator.
 - **Checks:** 12 tests passed; workspace typechecks, backend build, and test typecheck passed. A live Atlanta request succeeded with zero active alerts using a non-secret validation User-Agent. Run tests from the repo root with `node --import tsx --test backend/tests/nwsAlerts.client.test.ts`.
 
 | Date | Who | What | Key files |
@@ -327,6 +336,8 @@ Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `
 | 2026-10-27 | Lance | npm workspaces, Express app with `/api/health`, root `npm run dev`, `.gitignore`; merged with `dev` | `package.json`, `tsconfig.base.json`, `backend/**`, `.gitignore` |
 | 2026-10-27 | hello-world-42 | Globe height fix; single root `.env` (Vite `envDir`); proxy → 3000 | `Globe.tsx`, `vite.config.ts` |
 | 2026-10-27 | Lance | Backend loads root `.env`; zod upgraded to v4 (security fix); removed `jobs/` | `backend/src/server.ts`, `backend/package.json`, `.env.example` |
+| 2026-10-29 | Mohammed | NWS alerts client + 12 tests | `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts` |
+| 2026-10-29 | Lance | Backend core: shared ModuleResult contract + zod schemas, env validation, grid snapping, memory cache + TTL policy, singleflight, module registry (NWS as hazards), aggregator, `GET /api/location`, 17 tests | `shared/src/contract.ts`, `shared/src/schemas.ts`, `shared/package.json`, `backend/src/config/env.ts`, `backend/src/lib/grid.ts`, `backend/src/lib/singleflight.ts`, `backend/src/cache/cache.ts`, `backend/src/cache/memoryCache.ts`, `backend/src/cache/ttlPolicy.ts`, `backend/src/aggregator/*`, `backend/src/routes/location.ts`, `backend/src/app.ts`, `backend/src/server.ts`, `backend/tests/{aggregator,cache,grid,location.route}.test.ts` |
 
 ---
 
@@ -339,6 +350,9 @@ Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `
 5. **`feature/database-setup` isn't merged** and its `.gitignore` will conflict with `dev`. Merge `dev` into it first, keeping `dev`'s `.gitignore`. *(Aamir)*
 6. **No request timeout** in the geocoding client yet. Switch to `lib/http.ts` once it exists. *(Mohammed, after Lance's `http.ts`)*
 7. **Vite bundle > 500 kB** (Mapbox). Expected; not a problem for now.
+8. **No reverse geocoding yet, so the backend doesn't know a point's country.** NWS (US-only) needs it. Until then, `/api/location` accepts `?country=US`, and without it the hazards module returns `not_applicable`. Fix: add `reverseGeocode(lat, lng)` → ISO country code in `backend/src/modules/geo/`, then pass it as `resolveCountry` to `createAggregator` in `app.ts`. *(Mohammed for the client; Lance wires it in)*
+9. **`data_sources` check isn't wired yet.** The aggregator accepts `isEnabled(id)`; once the DB is merged it should read `data_sources.is_enabled`. *(Aamir + Lance)*
+10. **`CACHE_DRIVER=redis` isn't implemented**; the app always uses the memory cache for now.
 
 ---
 
@@ -361,6 +375,8 @@ Claim an item by moving it to Section 5 with your files.
 
 > Add one line per change: `YYYY-MM-DD · Name (GitHub) · agent-assisted? · what changed`
 
-- 2026-10-29 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented and tested the standalone NWS point-alert client on `feature/nws-alerts-client`; explicit User-Agent/country inputs, no environment-file access, no aggregation integration. Local only, not committed or pushed.
+- 2026-10-29 · Lance Santiago (LanceSan04) · agent-assisted · Built backend core (contract, schemas, env, grid, cache, singleflight, registry, aggregator, `/api/location`) with 17 tests; registered Mohammed's NWS client as the hazards module; updated Sections 3.6, 4, 5, 6, 7. Corrected the NWS entry: it was pushed, not local-only.
+
+- 2026-10-29 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented and tested the standalone NWS point-alert client on `feature/nws-alerts-client`; explicit User-Agent/country inputs, no environment-file access, no aggregation integration.
 
 - 2026-10-27 · Lance Santiago (LanceSan04) · agent-assisted · Created SPEC.md from the current `dev` branch, sprint plan and design decisions.
