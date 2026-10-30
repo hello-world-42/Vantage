@@ -6,6 +6,8 @@ import { createMemoryCache } from "./cache/memoryCache.js";
 import { createModuleRegistry } from "./aggregator/moduleRegistry.js";
 import { createAggregator, type AggregateLocation } from "./aggregator/aggregateLocation.js";
 import { createLocationRouter } from "./routes/location.js";
+import { authRouter } from "./routes/auth.js";
+import { favoritesRouter } from "./routes/favorites.js";
 
 export interface AppOptions {
   /** Inject a fake aggregator in tests; production builds the real one from env. */
@@ -35,7 +37,9 @@ export function createApp(options: AppOptions = {}) {
     });
 
   app.use("/api", createLocationRouter(aggregateLocation));
-  // Other routers (geocode, auth, favorites, ...) get mounted here as they're built.
+  app.use("/api/auth", authRouter);
+  app.use("/api/favorites", favoritesRouter);
+  // Other routers (geocode, profile, random, ...) get mounted here as they're built.
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });
