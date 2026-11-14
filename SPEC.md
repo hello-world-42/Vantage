@@ -2,7 +2,7 @@
 
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
-Last updated: 2026-10-29 by Mario Sepriano (hello-world-42)
+Last updated: 2026-11-14 by Mario Sepriano (hello-world-42)
 
 ---
 
@@ -322,7 +322,7 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
   - Next: `backend/src/modules/geo/randomLocation.service.ts`, `backend/src/routes/random.ts`, hazards module files
 
 ### Mario Sepriano: frontend dashboard
-- **Branch:** `feature/dashboard` (started 2026-10-29)
+- **Branch:** `feature/dashboard` (started 2026-11-14)
 - **Goal:** the dashboard contents are done (see Section 6). Next: the module-specific components, then the auth modal and landing page.
 - **Files still claimed:**
   - `frontend/src/components/Globe/Globe.tsx`, `frontend/src/components/Search/Search.tsx`, `frontend/src/components/LocationPanel/*`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/types.ts`, `frontend/src/api/client.ts`
@@ -352,7 +352,7 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 - **Integration:** done by Lance on 2026-10-29. The client is registered as the `hazards` module in `moduleRegistry.ts`, wrapped in `ModuleResult` and cached per cell + country by the aggregator.
 - **Checks:** 12 tests passed; workspace typechecks, backend build, and test typecheck passed. A live Atlanta request succeeded with zero active alerts using a non-secret validation User-Agent. Run tests from the repo root with `node --import tsx --test backend/tests/nwsAlerts.client.test.ts`.
 
-### Dashboard panel, Random button, Saved Locations and ModuleCard completed on 2026-10-29
+### Dashboard panel, Random button, Saved Locations and ModuleCard completed on 2026-11-14
 
 - **Owner:** Mario Sepriano (hello-world-42; agent-assisted).
 - **Branch:** `feature/dashboard`.
@@ -375,7 +375,7 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 | 2026-10-27 | Lance | Backend loads root `.env`; zod upgraded to v4 (security fix); removed `jobs/` | `backend/src/server.ts`, `backend/package.json`, `.env.example` |
 | 2026-10-29 | Mohammed | NWS alerts client + 12 tests | `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts` |
 | 2026-10-29 | Lance | Backend core: shared ModuleResult contract + zod schemas, env validation, grid snapping, memory cache + TTL policy, singleflight, module registry (NWS as hazards), aggregator, `GET /api/location`, 17 tests | `shared/src/contract.ts`, `shared/src/schemas.ts`, `shared/package.json`, `backend/src/config/env.ts`, `backend/src/lib/grid.ts`, `backend/src/lib/singleflight.ts`, `backend/src/cache/cache.ts`, `backend/src/cache/memoryCache.ts`, `backend/src/cache/ttlPolicy.ts`, `backend/src/aggregator/*`, `backend/src/routes/location.ts`, `backend/src/app.ts`, `backend/src/server.ts`, `backend/tests/{aggregator,cache,grid,location.route}.test.ts` |
-| 2026-10-29 | Mario | Dashboard panel (default + selected states), Random button, Saved Locations, generic ModuleCard, minimal auth context, location data hook | `frontend/src/components/{LocationPanel,modules,RandomButton,favorites}/**`, `frontend/src/{hooks,context,api,types.ts,App.tsx,main.tsx}`, `Globe.tsx` |
+| 2026-11-14 | Mario | Dashboard panel (default + selected states), Random button, Saved Locations, generic ModuleCard, minimal auth context, location data hook | `frontend/src/components/{LocationPanel,modules,RandomButton,favorites}/**`, `frontend/src/{hooks,context,api,types.ts,App.tsx,main.tsx}`, `Globe.tsx` |
 | 2026-10-29 | Aamir | Neon pool, migrations 001–003, six seeded data sources, email/password auth, JWT + role middleware, Google OAuth, protected Favorites API | `backend/src/db/**`, `backend/src/auth/**`, `backend/src/middleware/authenticate.ts`, `backend/src/middleware/requireRole.ts`, `backend/src/routes/auth.ts`, `backend/src/routes/favorites.ts` |
 
 ---
@@ -422,7 +422,7 @@ Claim an item by moving it to Section 5 with your files.
 
 > Add one line per change: `YYYY-MM-DD · Name (GitHub) · agent-assisted? · what changed`
 
-- 2026-10-29 · Mario Sepriano (hello-world-42) · agent-assisted · Built the dashboard panel (default state + selected-location view), Random location button, Saved Locations, generic `ModuleCard`, minimal `AuthContext`/`useAuth`, and `useLocationData`; Globe now clears its marker when the selection is cleared. Confirmed the Section 5 claim; updated Sections 3.6, 4, 5, 6, 7 (items 8–10) and 8.
+- 2026-11-14 · Mario Sepriano (hello-world-42) · agent-assisted · Built the dashboard panel (default state + selected-location view), Random location button, Saved Locations, generic `ModuleCard`, minimal `AuthContext`/`useAuth`, and `useLocationData`; Globe now clears its marker when the selection is cleared. Confirmed the Section 5 claim; updated Sections 3.6, 4, 5, 6, 7 (items 8–10) and 8.
 
 - 2026-10-29 · Aamir Mohammad (amohammad12) · agent-assisted · Updated SPEC.md to match `dev` at `37e9abb`: filled in GitHub username, documented merged database/auth/OAuth/favorites work, Lance's aggregator/cache/contract/location API, endpoint and branch statuses, remaining profile/logout/admin work, and resolved known issues 3–5.
 
