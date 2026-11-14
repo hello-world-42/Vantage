@@ -133,6 +133,12 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
     const selectionChanged = selected !== prevSelectedRef.current;
     prevSelectedRef.current = selected;
 
+    // Selection cleared (dashboard "back"): drop the marker.
+    if (!selected && markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+
     if (selected && selectionChanged) {
       const center: [number, number] = [selected.lng, selected.lat];
       if (markerRef.current) {
@@ -140,7 +146,8 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
       } else {
         markerRef.current = new mapboxgl.Marker({ color: '#38bdf8' }).setLngLat(center).addTo(map);
       }
-      if (selected.source === 'search') {
+      if (selected.source !== 'click') {
+        // search / random / saved can be anywhere on the planet: fly there
         map.flyTo({ center, zoom: Math.max(map.getZoom(), 4.5), padding, easing: easeOutCubic });
       } else {
         map.easeTo({ center, zoom: Math.max(map.getZoom(), 2.5), padding, duration: PANEL_TRANSITION_MS, easing: easeOutCubic });

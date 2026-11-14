@@ -16,6 +16,9 @@ export default function App() {
     setPanelOpen(true);
   }, []);
 
+  // "Back" in the dashboard: forget the location (marker disappears) but keep the panel open.
+  const clearSelection = useCallback(() => setSelected(null), []);
+
   const selectSearchResult = useCallback(
     (r: GeocodeResult) => select({ lat: r.lat, lng: r.lng, name: r.name, source: 'search' }),
     [select],
@@ -34,7 +37,14 @@ export default function App() {
         </div>
       </div>
 
-      <LocationPanel location={selected} open={panelOpen} onOpen={() => setPanelOpen(true)} onClose={() => setPanelOpen(false)} />
+      <LocationPanel
+        location={selected}
+        open={panelOpen}
+        onOpen={() => setPanelOpen(true)}
+        onClose={() => setPanelOpen(false)}
+        onClear={clearSelection}
+        onSelect={select}
+      />
     </div>
   );
 }
