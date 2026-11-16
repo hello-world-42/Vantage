@@ -2,7 +2,7 @@
 
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
-Last updated: 2026-11-14 by Mario Sepriano (hello-world-42)
+Last updated: 2026-11-15 by Mario Sepriano (hello-world-42)
 
 ---
 
@@ -166,7 +166,7 @@ Connection: `backend/src/db/client.ts` lazy-creates a `pg` pool from `DATABASE_U
 | GET | `/api/random` | — | ❌ Not started (frontend expects `{ lat, lng, name? }`, see Section 7 item 8) |
 | POST | `/api/auth/register`, `/api/auth/login` | — | ✅ Done (bcrypt + JWT) |
 | POST | `/api/auth/logout` | — | ❌ Not started |
-| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ✅ Done (PKCE; returns the same JWT shape as password login) |
+| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ✅ Done (PKCE; returns the same JWT shape as password login). ⚠️ The callback answers with JSON, so the browser app can't finish Google login yet. See Section 7 item 11 |
 | GET/PUT | `/api/profile` | User | ❌ Not started |
 | GET/POST | `/api/favorites` | User | ✅ Done |
 | DELETE | `/api/favorites/:favoriteId` | User | ✅ Done |
@@ -232,14 +232,18 @@ Vantage/
 │       │   ├── Globe/Globe.tsx                  ✅
 │       │   ├── Search/Search.tsx                ✅
 │       │   ├── LocationPanel/   ✅ LocationPanel, DefaultState, LocationDetails, layout.ts
-│       │   ├── Logo.tsx                         ✅
-│       │   ├── Attribution.tsx                  ⬜
+│       │   ├── Logo.tsx, TopBar.tsx, GlobeIllustration.tsx   ✅
+│       │   ├── Attribution.tsx                  ✅ data-source credits (landing page footer)
 │       │   ├── modules/         ✅ ModuleCard · ⬜ Weather/AirQuality/Astronomy/Hazards/Ocean/SkyConditions/Space
 │       │   ├── RandomButton/RandomButton.tsx    ✅
 │       │   ├── favorites/       ✅ SavedLocations.tsx, useFavorites.ts
-│       │   └── auth/, profile/, admin/   📁
-│       ├── context/AuthContext.tsx   ✅ session holder only (no login UI yet)
-│       └── hooks/               ✅ useAuth.ts, useLocationData.ts
+│       │   ├── auth/            ✅ AuthModal.tsx, GoogleMark.tsx
+│       │   └── profile/, admin/   📁
+│       ├── context/             ✅ AuthContext.tsx (session), AuthModalContext.tsx (opens the login dialog)
+│       ├── pages/               ✅ LandingPage (/), GlobePage (/globe), AuthCallbackPage (/auth/callback)
+│       ├── router.tsx           ✅ tiny History-API router (no dependency)
+│       ├── lib/jwt.ts           ✅ base64url decode, token-expiry check
+│       └── hooks/               ✅ useAuth.ts, useAuthModal.ts, useLocationData.ts
 │
 ├── scripts/preprocess-static/   📁 offline GDAL/Python for VIIRS + SEDAC
 └── data/static/                 📁 generated coarse grids
@@ -322,12 +326,12 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
   - Next: `backend/src/modules/geo/randomLocation.service.ts`, `backend/src/routes/random.ts`, hazards module files
 
 ### Mario Sepriano: frontend dashboard
-- **Branch:** `feature/dashboard` (started 2026-11-14)
-- **Goal:** the dashboard contents are done (see Section 6). Next: the module-specific components, then the auth modal and landing page.
+- **Branch:** `feature/auth-ui` (started 2026-11-15)
+- **Goal:** login/register modal and landing page are done (see Section 6). Next: dashboard restyle to match the wireframes (floating rounded panel, collapsed tab, zoom pill), then the module-specific components.
 - **Files still claimed:**
-  - `frontend/src/components/Globe/Globe.tsx`, `frontend/src/components/Search/Search.tsx`, `frontend/src/components/LocationPanel/*`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/types.ts`, `frontend/src/api/client.ts`
-  - `frontend/src/components/modules/*`
-  - Next: `frontend/src/components/auth/*`, `frontend/src/context/AuthContext.tsx`, `frontend/src/hooks/useAuth.ts`
+  - `frontend/src/components/Globe/Globe.tsx`, `frontend/src/components/Search/Search.tsx`, `frontend/src/components/LocationPanel/*`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/types.ts`, `frontend/src/api/client.ts`, `frontend/src/index.css`
+  - `frontend/src/components/modules/*`, `frontend/src/components/auth/*`, `frontend/src/components/TopBar.tsx`, `frontend/src/pages/*`, `frontend/src/router.tsx`
+  - `frontend/src/context/*`, `frontend/src/hooks/*`, `frontend/src/lib/*`
 
 ---
 
@@ -351,6 +355,17 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 - **Output:** provider result `{ status: 'ok', source: 'NWS', alerts }` (an empty list means no active alerts) or `{ status: 'not_applicable', source: 'NWS', reason }`. Failures throw `NwsClientError` with `code` and an optional HTTP `status`; upstream bodies and caller contact details are not included in errors.
 - **Integration:** done by Lance on 2026-10-29. The client is registered as the `hazards` module in `moduleRegistry.ts`, wrapped in `ModuleResult` and cached per cell + country by the aggregator.
 - **Checks:** 12 tests passed; workspace typechecks, backend build, and test typecheck passed. A live Atlanta request succeeded with zero active alerts using a non-secret validation User-Agent. Run tests from the repo root with `node --import tsx --test backend/tests/nwsAlerts.client.test.ts`.
+
+### Login/register modal, top bar and landing page completed on 2026-11-15
+
+- **Owner:** Mario Sepriano (hello-world-42, agent-assisted).
+- **Branch:** `feature/auth-ui`.
+- **Files:** `frontend/src/components/auth/{AuthModal,GoogleMark}.tsx`, `frontend/src/components/{TopBar,Logo,GlobeIllustration,Attribution}.tsx`, `frontend/src/context/AuthModalContext.tsx`, `frontend/src/hooks/useAuthModal.ts`, `frontend/src/pages/{LandingPage,GlobePage,AuthCallbackPage}.tsx`, `frontend/src/router.tsx`, `frontend/src/lib/jwt.ts`, `frontend/src/App.tsx` (now just the route table), `frontend/src/main.tsx`, `frontend/src/api/client.ts` (`login`, `register`, 400 `details`), `frontend/src/context/AuthContext.tsx` (drops expired tokens on load), `frontend/src/types.ts`, `frontend/src/index.css` (wireframe color tokens `vt-*`, focus ring), `frontend/src/components/LocationPanel/LocationPanel.tsx` (`fixed` → `absolute` so it sits under the top bar).
+- **Landing page (matches Figma screen 01):** line-art globe, VANTAGE heading, "Explore the World from Every Angle", description, "Explore the Globe →" button, and the attribution footer (`Attribution.tsx`: Open-Meteo, USGS, NOAA, NASA, Mapbox, each linked).
+- **Routes:** `/` landing page, `/globe` globe + dashboard (the old `App.tsx` body), `/auth/callback` Google return page. Unknown paths redirect to `/`. **Hosting must serve `index.html` for these paths** (Vite dev/preview already do).
+- **Modal (matches Figma screen 05):** Log in / Register tabs at the top with ✕ on the right, then "Login with Google", then the form, then "Don’t have an account? Register" (or "Already have an account? Log in"). Register calls `POST /api/auth/register`, then `POST /api/auth/login` (register returns no token). Client-side checks mirror the backend's zod rules (username 1–100, valid email, password 8–72 bytes). Handles 400 field `details`, 401 (with a "signed up with Google?" hint), 409 ("Log in instead"), 429, 5xx and network errors. Escape/backdrop/✕ close it; focus is trapped inside and returned to the trigger. Open it from anywhere with `useAuthModal().openAuth('login' | 'register')`. **Left out on purpose:** screen 05's "Forgot password?" link (no reset endpoint; see Section 7 item 12). **Added beyond the wireframe:** a Show/Hide password toggle.
+- **Top bar:** VANTAGE wordmark (links to `/`), Log in / Register for guests, avatar initial + menu (username, email, Log out) when signed in. Log out is client-side only (no `/api/auth/logout` yet).
+- **Checks:** typecheck and `vite build` pass. 3 tests drove the real modal against the **real** auth router (bcrypt, JWT, zod; in-memory user table instead of Neon): register → auto-login → log out → log in, wrong password, duplicate email, server-side field errors. 17 more against a stubbed backend: routing, landing page and attribution links, the screen-05 field order, every modal close/focus path, validation, error messages, aborting on close, expired-token handling, Saved Locations → modal → favorites load, and the Google return page (success, each error, malformed/expired data). Two deliberate breakages were each caught. Screenshots of the production build at 1250px and 390px were compared against Figma screens 01 and 05. **Not verified:** real Google login (blocked on Section 7 item 11), real Neon database, a live Mapbox globe under the new top bar.
 
 ### Dashboard panel, Random button, Saved Locations and ModuleCard completed on 2026-11-14
 
@@ -376,6 +391,7 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 | 2026-10-29 | Mohammed | NWS alerts client + 12 tests | `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts` |
 | 2026-10-29 | Lance | Backend core: shared ModuleResult contract + zod schemas, env validation, grid snapping, memory cache + TTL policy, singleflight, module registry (NWS as hazards), aggregator, `GET /api/location`, 17 tests | `shared/src/contract.ts`, `shared/src/schemas.ts`, `shared/package.json`, `backend/src/config/env.ts`, `backend/src/lib/grid.ts`, `backend/src/lib/singleflight.ts`, `backend/src/cache/cache.ts`, `backend/src/cache/memoryCache.ts`, `backend/src/cache/ttlPolicy.ts`, `backend/src/aggregator/*`, `backend/src/routes/location.ts`, `backend/src/app.ts`, `backend/src/server.ts`, `backend/tests/{aggregator,cache,grid,location.route}.test.ts` |
 | 2026-11-14 | Mario | Dashboard panel (default + selected states), Random button, Saved Locations, generic ModuleCard, minimal auth context, location data hook | `frontend/src/components/{LocationPanel,modules,RandomButton,favorites}/**`, `frontend/src/{hooks,context,api,types.ts,App.tsx,main.tsx}`, `Globe.tsx` |
+| 2026-11-15 | Mario | Login/register modal (screen 05), landing page with attribution footer (screen 01), top bar with avatar menu, routes (`/`, `/globe`, `/auth/callback`) | `frontend/src/{components/auth,pages,context,hooks,lib}/**`, `TopBar.tsx`, `Logo.tsx`, `Attribution.tsx`, `router.tsx`, `App.tsx`, `main.tsx`, `api/client.ts` |
 | 2026-10-29 | Aamir | Neon pool, migrations 001–003, six seeded data sources, email/password auth, JWT + role middleware, Google OAuth, protected Favorites API | `backend/src/db/**`, `backend/src/auth/**`, `backend/src/middleware/authenticate.ts`, `backend/src/middleware/requireRole.ts`, `backend/src/routes/auth.ts`, `backend/src/routes/favorites.ts` |
 
 ---
@@ -397,8 +413,10 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 6. **`data_sources` check isn't wired yet.** The table is seeded, but the aggregator still defaults to "all enabled". It already accepts `isEnabled(id)`; once wired it should read `data_sources.is_enabled`. *(Aamir + Lance)*
 7. **`CACHE_DRIVER=redis` isn't implemented**; the app always uses the memory cache for now.
 8. **Random endpoint contract.** The frontend `RandomButton` calls `GET /api/random` and expects `{ lat: number, lng: number, name?: string }` (land-biased). Until the route exists the button shows "unavailable". Match this shape, or tell Mario what it will be. *(Mohammed)*
-9. **Where the JWT lives in the browser.** `AuthContext` keeps it in `localStorage` so Saved Locations survives reloads. Revisit when the login modal is built (localStorage is readable by any XSS; the alternative is memory-only or an httpOnly cookie). Also undecided: `GET /api/auth/google/callback` returns JSON, so the SPA needs a way to receive the token after the Google redirect. *(Aamir + Mario)*
+9. **Where the JWT lives in the browser.** Still `localStorage` (key `vantage.auth`), so a login survives reloads; expired tokens are dropped on load. Tradeoff: any XSS could read it. The alternative is an httpOnly cookie, which needs backend changes. Decide before deployment. *(Aamir + Mario)*
 10. **`/api/location` returns every module in one response**, so the dashboard waits on the slowest module and shows all cards at once. There is no per-module endpoint for progressive loading. Decide whether that's acceptable. *(Lance)*
+11. **Google login can't finish in the browser app yet.** `GET /api/auth/google/callback` (in `backend/src/routes/auth.ts`, Aamir's file) answers with JSON, so after Google the user is left looking at raw JSON. The frontend side is ready at `/auth/callback`. Proposed backend change (Aamir to accept or adjust): on success, `res.redirect(`${env.CLIENT_URL}/auth/callback#token=${token}&user=${base64url(JSON.stringify(sanitizedUser(user)))}`)`; on failure, redirect to `/auth/callback#error=state|failed|conflict` instead of the JSON 400/401/409. The fragment (`#`) keeps the token out of server logs, and the page removes it from the address bar immediately. *(Aamir; frontend by Mario is done)*
+12. **"Forgot password?" (Figma screen 05) has nothing behind it.** There's no reset endpoint, and a reset flow needs an email service plus single-use reset tokens. The link is left out of the modal until the team decides whether to build it (or drops it from the wireframe). *(Aamir for the backend; Mario adds the link)*
 
 ---
 
@@ -411,9 +429,9 @@ Claim an item by moving it to Section 5 with your files.
 - **Middleware still empty:** `errorHandler.ts`, `validate.ts`, `rateLimit.ts` (`authenticate` / `requireRole` are done)
 - **Auth leftovers:** `POST /api/auth/logout`, `GET/PUT /api/profile`
 - **Optional cache pieces:** `cache/redisCache.ts` (Upstash), `lib/throttle.ts` (per-provider throttle)
-- **Frontend:** module components replacing the raw-JSON placeholder (Weather, AirQuality, Astronomy, Hazards, Ocean, SkyConditions, Space), landing page, login/register modal (with Google), profile page, `Attribution.tsx`, favorites star in search results (there is currently no way to *add* a favorite from the UI)
+- **Frontend:** module components replacing the raw-JSON placeholder (Weather, AirQuality, Astronomy, Hazards, Ocean, SkyConditions, Space), profile page (the avatar menu has no Profile link until it exists), Open-Meteo attribution on the globe page once weather data shows, favorites star in search results (there is currently no way to *add* a favorite from the UI)
 - **Admin API** (no UI): manage users; enable/disable data sources
-- **Deployment** (hosting TBD) and production OAuth redirect URIs
+- **Deployment** (hosting TBD), production OAuth redirect URIs, and an SPA fallback so `/globe` and `/auth/callback` serve `index.html`
 - **Class deliverables:** testing scenarios write-up, sprint reports
 
 ---
@@ -421,6 +439,8 @@ Claim an item by moving it to Section 5 with your files.
 ## 9. Change Log
 
 > Add one line per change: `YYYY-MM-DD · Name (GitHub) · agent-assisted? · what changed`
+
+- 2026-11-15 · Mario Sepriano (hello-world-42) · agent-assisted · Added the login/register modal (Figma screen 05; wired to `/api/auth/register` + `/login`), landing page with the attribution footer (screen 01), top bar with avatar menu, and routes (`/`, `/globe`, `/auth/callback`). Google return page is ready but needs the backend redirect in Section 7 item 11; "Forgot password?" left out (item 12). Updated Sections 3.6, 4, 5, 6, 7 (items 9, 11, 12), 8.
 
 - 2026-11-14 · Mario Sepriano (hello-world-42) · agent-assisted · Built the dashboard panel (default state + selected-location view), Random location button, Saved Locations, generic `ModuleCard`, minimal `AuthContext`/`useAuth`, and `useLocationData`; Globe now clears its marker when the selection is cleared. Confirmed the Section 5 claim; updated Sections 3.6, 4, 5, 6, 7 (items 8–10) and 8.
 

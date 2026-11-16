@@ -1,13 +1,16 @@
 // The frontend ONLY talks to our own backend (keys stay server-side).
 import type { GeocodeResponse, GeocodeResult, LocationResponse } from '@vantage/shared';
-import type { Favorite, RandomLocation } from '../types';
+import type { AuthResponse, AuthUser, Favorite, RandomLocation } from '../types';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Field-level messages from 400 responses, e.g. { password: ["..."] } (see zod `flatten().fieldErrors`). */
+  details?: Record<string, string[]>;
+  constructor(status: number, message: string, details?: Record<string, string[]>) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -15,24 +18,38 @@ interface RequestOptions {
   signal?: AbortSignal;
   /** JWT for protected routes, sent as `Authorization: Bearer`. */
   token?: string | null;
-  method?: 'GET' | 'DELETE';
+  method?: 'GET' | 'POST' | 'DELETE';
+  /** Sent as JSON. */
+  body?: unknown;
 }
 
-async function request<T>(path: string, { signal, token, method }: RequestOptions = {}): Promise<T> {
+function readDetails(value: unknown): Record<string, string[]> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [key, messages] of Object.entries(value as Record<string, unknown>)) {
+    if (Array.isArray(messages)) out[key] = messages.filter((m): m is string => typeof m === 'string');
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+async function request<T>(path: string, { signal, token, method, body }: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const res = await fetch(path, { method, headers, signal });
+  const res = await fetch(path, { method, headers, signal, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!res.ok) {
-    // Backend errors look like { error: "message" }; fall back to a generic message.
+    // Backend errors look like { error: "message", details?: { field: [..] } }.
     let message = `Request failed (${res.status})`;
+    let details: Record<string, string[]> | undefined;
     try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body.error === 'string') message = body.error;
+      const parsed = (await res.json()) as { error?: unknown; details?: unknown };
+      if (typeof parsed.error === 'string') message = parsed.error;
+      details = readDetails(parsed.details);
     } catch {
       /* body wasn't JSON */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, details);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -59,4 +76,17 @@ export async function getFavorites(token: string, signal?: AbortSignal): Promise
 
 export function deleteFavorite(token: string, id: number): Promise<void> {
   return request<void>(`/api/favorites/${id}`, { token, method: 'DELETE' });
+}
+
+/** POST /api/auth/login -> { token, user }. 401 = wrong email or password. */
+export function login(email: string, password: string, signal?: AbortSignal): Promise<AuthResponse> {
+  return request<AuthResponse>('/api/auth/login', { method: 'POST', body: { email, password }, signal });
+}
+
+/**
+ * POST /api/auth/register -> { user } (201). The backend does NOT return a token here, so
+ * callers that want the user signed in must call `login` afterwards. 409 = email already used.
+ */
+export function register(username: string, email: string, password: string, signal?: AbortSignal): Promise<{ user: AuthUser }> {
+  return request<{ user: AuthUser }>('/api/auth/register', { method: 'POST', body: { username, email, password }, signal });
 }

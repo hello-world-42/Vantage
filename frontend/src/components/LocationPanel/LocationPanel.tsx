@@ -43,7 +43,7 @@ export default function LocationPanel({ location, open, onOpen, onClose, onClear
           } as CSSProperties
         }
         className={[
-          'fixed z-20 flex flex-col border-white/10 bg-slate-950/85 text-slate-100 shadow-2xl backdrop-blur-md',
+          'absolute z-20 flex flex-col border-white/10 bg-slate-950/85 text-slate-100 shadow-2xl backdrop-blur-md',
           'transition-transform ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none',
           // desktop: full-height panel on the right
           'md:inset-y-0 md:right-0 md:w-(--panel-width) md:border-l',
@@ -105,7 +105,7 @@ export default function LocationPanel({ location, open, onOpen, onClose, onClear
           type="button"
           onClick={onOpen}
           aria-controls="location-panel"
-          className="fixed right-4 top-4 z-10 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 shadow-lg backdrop-blur hover:bg-slate-900/80"
+          className="absolute right-4 top-4 z-10 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 shadow-lg backdrop-blur hover:bg-slate-900/80"
         >
           Open dashboard
         </button>
