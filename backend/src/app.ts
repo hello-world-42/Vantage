@@ -8,10 +8,13 @@ import { createAggregator, type AggregateLocation } from "./aggregator/aggregate
 import { createLocationRouter } from "./routes/location.js";
 import { authRouter } from "./routes/auth.js";
 import { favoritesRouter } from "./routes/favorites.js";
+import { createErrorHandler, type ErrorHandlerOptions } from "./middleware/errorHandler.js";
 
 export interface AppOptions {
   /** Inject a fake aggregator in tests; production builds the real one from env. */
   aggregateLocation?: AggregateLocation;
+  /** Override where unexpected errors are logged (tests silence it). */
+  logError?: ErrorHandlerOptions["logError"];
 }
 
 /**
@@ -44,6 +47,9 @@ export function createApp(options: AppOptions = {}) {
   app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });
   });
+
+  // Must stay last: turns errors from any route into JSON without stack traces.
+  app.use(createErrorHandler({ logError: options.logError }));
 
   return app;
 }

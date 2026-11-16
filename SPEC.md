@@ -2,7 +2,7 @@
 
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
-Last updated: 2026-10-29 by Lance Santiago (LanceSan04)
+Last updated: 2026-11-15 by Lance Santiago (LanceSan04)
 
 ---
 
@@ -33,8 +33,8 @@ Team class project, Software Engineering, Georgia State University. The professo
 | Person | GitHub | Sprint role |
 |---|---|---|
 | Lance Santiago | LanceSan04 | Foundation and integration: repo setup, shared contract, aggregator, cache, PR reviews |
-| Aamir Mohammad | (fill in) | Database and auth |
-| hello-world-42 (fill in name) | hello-world-42 | Frontend: globe, dashboard, search UI, auth UI |
+| Aamir Mohammad | amohammad12 | Database and auth |
+| Mario Sepriano | hello-world-42 | Frontend: globe, dashboard, search UI, auth UI |
 | Mohammed Hussain Shareef Shaik | (fill in) | Data modules: geocoding, weather, hazards, random location; testing scenarios |
 
 ### 2.3 User roles
@@ -61,10 +61,10 @@ Team class project, Software Engineering, Georgia State University. The professo
 | Layer | Tech |
 |---|---|
 | Frontend | React 19, Vite 8, Tailwind CSS 4, Mapbox GL JS 3, TypeScript |
-| Backend | Node (≥ 20.19), Express 4, helmet, cors, dotenv, zod 4, TypeScript (run with `tsx`) |
+| Backend | Node (≥ 20.19), Express 4, helmet, cors, dotenv, zod 4, TypeScript (run with `tsx`), `pg`, bcrypt, jsonwebtoken, google-auth-library, cookie-parser |
 | Shared | `@vantage/shared` workspace package (types + zod schemas used by both sides) |
 | Database | PostgreSQL on Neon |
-| Auth | JWT + bcrypt, Google OAuth 2.0 |
+| Auth | JWT + bcrypt, Google OAuth 2.0 (PKCE) |
 | Cache | In-memory by default; optional Upstash Redis (`CACHE_DRIVER`) |
 | Repo | npm workspaces monorepo: `shared`, `backend`, `frontend` |
 
@@ -96,6 +96,7 @@ Browser (React)
       └─ Vite dev proxy → http://localhost:3000
           └─ Express (backend/src/app.ts)
               └─ route (backend/src/routes/*)
+                  ├─ auth / favorites → Neon PostgreSQL (backend/src/db/)
                   └─ aggregator (backend/src/aggregator/)
                       ├─ cache check (backend/src/cache/)   ← grid-cell key + TTL
                       └─ data modules (backend/src/modules/*) → third-party APIs
@@ -109,10 +110,12 @@ Browser (React)
 - **Grid snapping.** Coordinates snap to a grid cell (start with 0.25°) and we fetch for the cell **center**. That makes nearby clicks share one cache entry.
 - **Lazy (on-demand) caching, no background jobs.** Data is fetched the first time someone needs it, then cached until its TTL expires. Free hosting sleeps when idle, so scheduled jobs wouldn't run. The `jobs/` folder was removed on purpose; **don't re-add it.**
 - **Singleflight.** Duplicate in-flight requests for the same key share one upstream call.
-- **Timeouts.** Every upstream call is wrapped with a ~5 s `AbortController` timeout (`lib/http.ts`).
+- **Timeouts.** Every upstream call goes through `fetchJson` / `fetchText` in `lib/http.ts` (5 s default, also stops when the aggregator's `context.signal` aborts). The aggregator separately caps each whole module at 8 s.
+- **Errors.** `middleware/errorHandler.ts` is the last middleware: unexpected errors become `500 { error: "Something went wrong." }` and are logged server-side only; safe 4xx errors (bad JSON body, too large) keep their status. Routes pass errors with `next(err)`.
 - **Global-list sources** (Launch Library 2, GVP volcanoes) are cached under **one** key and filtered by distance in our code. Never cache them per cell.
 - **Admin can disable providers** through the `data_sources` table. The aggregator checks it and returns `disabled` for those modules.
 - **`app.ts` / `server.ts` split.** `app.ts` builds the Express app (testable without a port); `server.ts` loads env and calls `listen()`.
+- **Auth tokens.** Email/password login and Google OAuth both return a JWT (`Authorization: Bearer`). Google OAuth uses PKCE plus short-lived signed HttpOnly cookies for `state` and the code verifier only.
 
 ### 3.3 Environment
 
@@ -120,6 +123,7 @@ Browser (React)
 - The backend loads it in `backend/src/server.ts`; Vite reads it via `envDir` in `frontend/vite.config.ts`.
 - Only variables starting with `VITE_` reach the browser. **Only `VITE_MAPBOX_TOKEN` (public) and `VITE_API_URL` belong there.**
 - Backend port: **3000**. Frontend dev server: **5173**. The Vite proxy forwards `/api` → `localhost:3000`.
+- Auth and the database need `DATABASE_URL`, `JWT_SECRET` (at least 32 characters), and `JWT_EXPIRES_IN`. Google login also needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_CALLBACK_URL`. `env.ts` still treats those as optional at process start so the location aggregator can boot without them; the auth and DB code require them when those routes run.
 
 ### 3.4 Data sources
 
@@ -141,13 +145,17 @@ Browser (React)
 
 ### 3.5 Database (Neon / PostgreSQL)
 
-Three tables only. Live API data is cached, never stored in the DB. Guests aren't stored.
+Three tables. Live API data is cached, never stored in the DB. Guests aren't stored. Apply migrations in order: `001_initial_schema.sql`, `002_seed_data_sources.sql`, `003_google_oauth.sql`.
 
-- **users:** `user_id` PK, `username`, `email` (unique), `password_hash`, `role` ('user' | 'admin'), `created_at`
+- **users:** `user_id` PK, `username`, `email` (unique), `password_hash` (nullable after `003`), `google_sub` (unique, nullable), `role` ('user' | 'admin'), `created_at`. Check constraint: at least one of `password_hash` or `google_sub` is set.
 - **favorite_locations:** `favorite_id` PK, `user_id` FK → users (cascade delete), `label`, `latitude`, `longitude`, `country`, `city`, `saved_at`
-- **data_sources:** `source_id` PK, `updated_by` FK → users (nullable, set null), `name`, `category`, `is_enabled`, `last_status`, `last_checked_at`
+- **data_sources:** `source_id` PK, `updated_by` FK → users (nullable, set null), `name` (unique), `category`, `is_enabled`, `last_status`, `last_checked_at`
+
+`002_seed_data_sources.sql` inserts six enabled rows (idempotent on `name`): Open-Meteo, USGS, NWS, NOAA SWPC, N2YO, Launch Library 2.
 
 Relationships: users 1 → 0..* favorite_locations ("saves"); users 0..1 → 0..* data_sources ("updates").
+
+Connection: `backend/src/db/client.ts` lazy-creates a `pg` pool from `DATABASE_URL`. Types live in `backend/src/db/schema.ts`.
 
 ### 3.6 API endpoints (planned)
 
@@ -156,11 +164,13 @@ Relationships: users 1 → 0..* favorite_locations ("saves"); users 0..1 → 0..
 | GET | `/api/health` | — | ✅ Done |
 | GET | `/api/geocode?q=` | — | ❌ Route missing (client exists) |
 | GET | `/api/location?lat=&lng=[&country=]` | — | ✅ Done (hazards module only: NWS alerts) |
-| GET | `/api/random` | — | ❌ Not started |
-| POST | `/api/auth/register`, `/api/auth/login`, `/api/auth/logout` | — | ❌ Not started |
-| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ❌ Not started |
+| GET | `/api/random` | — | ❌ Not started (frontend expects `{ lat, lng, name? }`, see Section 7 item 8) |
+| POST | `/api/auth/register`, `/api/auth/login` | — | ✅ Done (bcrypt + JWT) |
+| POST | `/api/auth/logout` | — | ❌ Not started |
+| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ✅ Done (PKCE; returns the same JWT shape as password login) |
 | GET/PUT | `/api/profile` | User | ❌ Not started |
-| GET/POST/DELETE | `/api/favorites` | User | ❌ Not started |
+| GET/POST | `/api/favorites` | User | ✅ Done |
+| DELETE | `/api/favorites/:favoriteId` | User | ✅ Done |
 | * | `/api/admin/...` | Admin | ❌ Not started (no UI) |
 
 ---
@@ -187,19 +197,21 @@ Vantage/
 │       └── schemas.ts           ✅ zod: locationQuerySchema, geocodeQuerySchema
 │
 ├── backend/                     @vantage/backend
-│   ├── package.json             ✅ express, helmet, cors, dotenv, zod 4, tsx
+│   ├── package.json             ✅ express, helmet, cors, dotenv, zod 4, tsx, pg, bcrypt, jsonwebtoken, google-auth-library, cookie-parser
 │   ├── tsconfig.json            ✅
-│   ├── tests/                   ✅ node:test suites (aggregator, cache, grid, location route, NWS client)
+│   ├── scripts/run-tests.mjs    ✅ finds and runs every backend test file (`npm test`)
+│   ├── tests/                   ✅ node:test suites (aggregator, cache, grid, location route, NWS client, error handler, http)
 │   └── src/
-│       ├── app.ts               ✅ helmet, CORS, JSON, /api/health, wires aggregator + /api/location, 404
+│       ├── app.ts               ✅ helmet, CORS, JSON, /api/health, aggregator + /api/location, /api/auth, /api/favorites, 404
 │       ├── server.ts            ✅ listen(env.PORT)
 │       ├── config/env.ts        ✅ loads root .env, validates with zod, exports typed `env`
 │       ├── aggregator/          ✅ moduleRegistry.ts (hazards/NWS registered), aggregateLocation.ts
+│       ├── auth/                ✅ googleOAuth.ts (+ tests)
 │       ├── cache/               ✅ cache.ts, memoryCache.ts, ttlPolicy.ts · ⬜ redisCache.ts
-│       ├── lib/                 ✅ grid.ts, singleflight.ts · ⬜ geo.ts, http.ts, throttle.ts
-│       ├── middleware/          ⬜ authenticate, errorHandler, rateLimit, requireRole, validate
-│       ├── routes/              ✅ location.ts · ⬜ admin, auth, favorites, geocode, profile, random
-│       ├── db/                  ⬜ client.ts, schema.ts, migrations/ 📁
+│       ├── lib/                 ✅ grid.ts, singleflight.ts, http.ts (fetchJson/fetchText with timeout) · ⬜ geo.ts, throttle.ts
+│       ├── middleware/          ✅ authenticate, requireRole (+ tests), errorHandler · ⬜ rateLimit, validate
+│       ├── routes/              ✅ location.ts, auth.ts, favorites.ts (+ tests) · ⬜ admin, geocode, profile, random
+│       ├── db/                  ✅ client.ts, schema.ts, migrations/001_initial_schema.sql, 002_seed_data_sources.sql, 003_google_oauth.sql (+ tests)
 │       └── modules/
 │           ├── geo/             ✅ mapboxGeocoding.client.ts · ⬜ geo.service.ts, randomLocation.service.ts
 │           ├── weather/         ⬜ openMeteo.client.ts, weather.service.ts
@@ -217,17 +229,19 @@ Vantage/
 │   ├── index.html               ✅
 │   └── src/
 │       ├── main.tsx, App.tsx, index.css, types.ts, vite-env.d.ts   ✅
-│       ├── api/client.ts        ✅ geocode() → /api/geocode
+│       ├── api/client.ts        ✅ geocode, getLocation, getRandomLocation, getFavorites, deleteFavorite
 │       ├── components/
 │       │   ├── Globe/Globe.tsx                  ✅
 │       │   ├── Search/Search.tsx                ✅
-│       │   ├── LocationPanel/LocationPanel.tsx  ✅ + layout.ts
+│       │   ├── LocationPanel/   ✅ LocationPanel, DefaultState, LocationDetails, layout.ts
 │       │   ├── Logo.tsx                         ✅
 │       │   ├── Attribution.tsx                  ⬜
-│       │   ├── modules/         ⬜ ModuleCard + Weather/AirQuality/Astronomy/Hazards/Ocean/SkyConditions/Space
-│       │   └── auth/, favorites/, profile/, RandomButton/, admin/   📁
-│       ├── context/AuthContext.tsx   ⬜
-│       └── hooks/               ⬜ useAuth.ts, useLocationData.ts
+│       │   ├── modules/         ✅ ModuleCard · ⬜ Weather/AirQuality/Astronomy/Hazards/Ocean/SkyConditions/Space
+│       │   ├── RandomButton/RandomButton.tsx    ✅
+│       │   ├── favorites/       ✅ SavedLocations.tsx, useFavorites.ts
+│       │   └── auth/, profile/, admin/   📁
+│       ├── context/AuthContext.tsx   ✅ session holder only (no login UI yet)
+│       └── hooks/               ✅ useAuth.ts, useLocationData.ts
 │
 ├── scripts/preprocess-static/   📁 offline GDAL/Python for VIIRS + SEDAC
 └── data/static/                 📁 generated coarse grids
@@ -238,11 +252,13 @@ Vantage/
 | Branch | Owner | State |
 |---|---|---|
 | `main` | — | Initial scaffold only. Update from `dev` at milestones |
-| `dev` | everyone | Integration branch. All PRs go here |
-| `feature/database-setup` | Aamir | **Not merged.** Schema SQL + TS types (see Section 7) |
-| `feature/globe` | hello-world-42 | Merged into `dev` |
+| `dev` | everyone | Integration branch. All PRs go here. At `37e9abb`: database, auth, aggregator, NWS hazards, globe, geocoding client |
+| `feature/database-setup` | Aamir | **Merged** into `dev` (PR #1) |
+| `feature/auth` | Aamir | **Merged** into `dev` (PR #5) |
+| `feature/nws-alerts-client` | Mohammed | **Merged** into `dev` (PR #4) |
+| `feature/globe` | Mario | Merged into `dev` |
 | `person4-geocode-weather` | Mohammed | Merged into `dev` |
-| `feature/workspace-scaffold` | Lance | Merged into `dev` |
+| `feature/workspace-scaffold` | Lance | Merged into `dev` (PR #6) |
 
 ### Running it
 
@@ -252,11 +268,17 @@ cp .env.example .env      # then fill in the keys
 npm run dev               # backend :3000 + frontend :5173
 ```
 
-Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `npm run typecheck`.
+Other scripts: `npm run dev:backend`, `npm run dev:frontend`, `npm run build`, `npm run typecheck`, `npm test`.
 
-Backend tests (from the repo root; a root `npm test` script is coming): `node --import tsx --test backend/tests/*.test.ts`
+Backend tests (from the repo root; works the same on Windows):
+
+```bash
+npm test
+```
 
 Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&country=US` (needs `NWS_USER_AGENT` in `.env`).
+
+Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs the `GOOGLE_*` variables and a matching authorized redirect URI.
 
 ---
 
@@ -266,11 +288,9 @@ Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&cou
 > Entries marked *(from sprint plan, confirm)* were assigned in the sprint plan but the owner hasn't confirmed the claim yet. Owners: confirm or edit your entry.
 
 ### Lance Santiago (LanceSan04): foundation cleanup
-- **Branch:** `feature/backend-core` · **Started:** 2026-10-29
-- **Goal:** root `npm test` script, JSON error handler, README setup steps. (Backend core steps 1–6 are done; see Section 6.)
+- **Branch:** `feature/foundation-cleanup` · **Started:** 2026-11-15
+- **Goal:** README setup steps next, then reverse-geocoding wiring once Mohammed's client lands. (Error handler, `lib/http.ts` and `npm test` are done; see Section 6.)
 - **Files:**
-  - `package.json` (root, scripts only)
-  - `backend/src/middleware/errorHandler.ts`
   - `README.md`
 - **Shared integration points Lance maintains** (other owners may add their *own* entry, then tell Lance):
   - `shared/src/contract.ts`: add a new `ModuleId` when you add a module. Put your module's data type in your own file under `shared/src/modules/` instead of editing the envelope types.
@@ -278,18 +298,18 @@ Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&cou
   - `backend/src/cache/ttlPolicy.ts`: one line per module.
 
 **How to add a data module** (the contract every module follows):
-1. Write the client in `backend/src/modules/<area>/`. Return `{ status: "ok", source, data }` or `{ status: "not_applicable", source?, reason }`, and **throw** on failure. Don't read `process.env`; take keys as arguments.
+1. Write the client in `backend/src/modules/<area>/`. Call the API with `fetchJson` / `fetchText` from `lib/http.ts` (pass `context.signal` and a `service` name), validate the body with zod, then return `{ status: "ok", source, data }` or `{ status: "not_applicable", source?, reason }`, and **throw** on failure. Don't read `process.env`; take keys as arguments.
 2. Add an entry in `moduleRegistry.ts` with `id`, `label`, `scope` (`cell` / `global` / `us-only`), `ttlSeconds` (from `ttlPolicy.ts`) and `fetch(context)`. Use `context.cell.lat/lng` (the cell center), not the raw click.
 3. Pass any key it needs from `env` in `app.ts` → `createModuleRegistry({...})`.
 4. The aggregator handles caching, singleflight, timeouts (8 s), the disabled check and turning throws into `{ status: "error" }`.
 
-### Aamir Mohammad: database and auth *(from sprint plan, confirm)*
-- **Branch:** `feature/database-setup` · **Started:** 2026-10-15
-- **Goal:** finish and merge the schema, then the auth routes.
+### Aamir Mohammad (amohammad12): profile API and data-source admin wiring
+- **Branch:** start a new `feature/...` from `dev` (`feature/database-setup` and `feature/auth` are merged)
+- **Goal:** profile routes next; then logout if the team wants a server endpoint; then wire `data_sources.is_enabled` into the aggregator with Lance.
 - **Files:**
-  - `backend/src/db/migrations/001_initial_schema.sql`, `backend/src/db/migrations/002_seed_data_sources.sql`
-  - `backend/src/db/schema.ts`, `backend/src/db/client.ts`
-  - Next: `backend/src/routes/auth.ts`, `backend/src/routes/profile.ts`, `backend/src/routes/favorites.ts`, `backend/src/middleware/authenticate.ts`, `backend/src/middleware/requireRole.ts`
+  - `backend/src/routes/profile.ts`
+  - Next: `backend/src/routes/auth.ts` (logout only, if added), `backend/src/routes/admin.ts`
+- **Do not edit** Lance's aggregator/cache/contract files without coordinating. The aggregator already accepts `isEnabled(id)`; wiring it to Neon is a joint step (see Section 7).
 
 ### Mohammed Hussain Shareef Shaik: geocoding and weather *(from sprint plan, confirm)*
 - **Branch:** `person4-geocode-weather` (or a new `feature/...` from `dev`)
@@ -301,19 +321,26 @@ Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&cou
   - `backend/src/modules/weather/openMeteo.client.ts`, `backend/src/modules/weather/weather.service.ts`
   - Next: `backend/src/modules/geo/randomLocation.service.ts`, `backend/src/routes/random.ts`, hazards module files
 
-### hello-world-42: frontend dashboard *(from sprint plan, confirm)*
-- **Branch:** create a `feature/...` from `dev`
-- **Goal:** dashboard contents (ModuleCard, default state, Random button, Saved Locations), then the auth modal and landing page.
-- **Files:**
-  - `frontend/src/components/Globe/Globe.tsx`, `frontend/src/components/Search/Search.tsx`, `frontend/src/components/LocationPanel/*`, `frontend/src/App.tsx`
+### Mario Sepriano: frontend dashboard
+- **Branch:** `feature/dashboard` (started 2026-11-14)
+- **Goal:** the dashboard contents are done (see Section 6). Next: the module-specific components, then the auth modal and landing page.
+- **Files still claimed:**
+  - `frontend/src/components/Globe/Globe.tsx`, `frontend/src/components/Search/Search.tsx`, `frontend/src/components/LocationPanel/*`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/types.ts`, `frontend/src/api/client.ts`
   - `frontend/src/components/modules/*`
-  - `frontend/src/components/RandomButton/*`, `frontend/src/components/favorites/*`
-  - `frontend/src/hooks/useLocationData.ts`, `frontend/src/api/client.ts`
   - Next: `frontend/src/components/auth/*`, `frontend/src/context/AuthContext.tsx`, `frontend/src/hooks/useAuth.ts`
 
 ---
 
 ## 6. Completed
+
+### Database, authentication, Google OAuth, and Favorites API completed on 2026-10-29
+
+- **Owner:** Aamir Mohammad (amohammad12, agent-assisted).
+- **Branches:** `feature/database-setup` merged via PR #1; `feature/auth` merged via PR #5 (commit `ef4780a`, on `dev` at `37e9abb`).
+- **Files:** `backend/src/db/client.ts`, `backend/src/db/schema.ts`, `backend/src/db/migrations/001_initial_schema.sql`, `backend/src/db/migrations/002_seed_data_sources.sql`, `backend/src/db/migrations/003_google_oauth.sql`, `backend/src/auth/googleOAuth.ts`, `backend/src/middleware/authenticate.ts`, `backend/src/middleware/requireRole.ts`, `backend/src/routes/auth.ts`, `backend/src/routes/favorites.ts`, colocated `*.test.ts` next to those modules, plus `backend/src/app.ts` (mounts `/api/auth` and `/api/favorites`) and `backend/package.json` (pg, bcrypt, jsonwebtoken, google-auth-library, cookie-parser).
+- **Handoff:** `POST /api/auth/register` stores a bcrypt hash (cost 12) and returns a sanitized user (no token). `POST /api/auth/login` returns `{ token, user }` with HS256 JWT claims `{ userId, role }`. Google login is `GET /api/auth/google` → Google → `GET /api/auth/google/callback`; it uses PKCE, signed cookies for state/verifier, and the same JWT shape. Google-only users have `password_hash = NULL` and a unique `google_sub`. An existing email/password account is **not** auto-linked (409). Favorites (`POST/GET /api/favorites`, `DELETE /api/favorites/:favoriteId`) require `Authorization: Bearer` and `requireRole("user")` (admins inherit user access).
+- **Not in this work:** logout, profile, admin API, frontend auth UI, and reading `data_sources.is_enabled` from Neon.
+- **Checks:** colocated automated tests for the DB client, seed + Google migrations, register, login, Google OAuth, JWT middleware, roles, and favorites. Google OAuth was verified manually against the live consent screen. Workspace TypeScript checks and the backend build succeeded for this work.
 
 ### Standalone NWS client completed on 2026-10-29
 
@@ -325,34 +352,54 @@ Try the aggregator: `http://localhost:3000/api/location?lat=33.75&lng=-84.39&cou
 - **Integration:** done by Lance on 2026-10-29. The client is registered as the `hazards` module in `moduleRegistry.ts`, wrapped in `ModuleResult` and cached per cell + country by the aggregator.
 - **Checks:** 12 tests passed; workspace typechecks, backend build, and test typecheck passed. A live Atlanta request succeeded with zero active alerts using a non-secret validation User-Agent. Run tests from the repo root with `node --import tsx --test backend/tests/nwsAlerts.client.test.ts`.
 
+### Dashboard panel, Random button, Saved Locations and ModuleCard completed on 2026-11-14
+
+- **Owner:** Mario Sepriano (hello-world-42; agent-assisted).
+- **Branch:** `feature/dashboard`.
+- **Files:** `frontend/src/components/LocationPanel/{LocationPanel,DefaultState,LocationDetails}.tsx`, `frontend/src/components/modules/ModuleCard.tsx`, `frontend/src/components/RandomButton/RandomButton.tsx`, `frontend/src/components/favorites/{SavedLocations.tsx,useFavorites.ts}`, `frontend/src/hooks/{useLocationData,useAuth}.ts`, `frontend/src/context/AuthContext.tsx`, `frontend/src/api/client.ts`, `frontend/src/types.ts`, `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/src/components/Globe/Globe.tsx` (clears its marker when the selection is cleared; Random/Saved fly like search).
+- **Dashboard:** with no location selected it shows the default state (Random button + Saved Locations). Selecting a location shows one `ModuleCard` per module returned by `GET /api/location`, with a Back button that returns to the default state. The "Open dashboard" button now appears whenever the panel is collapsed, even with no location.
+- **ModuleCard handoff:** `<ModuleCard title result onRetry>{(data, meta) => ...}</ModuleCard>` owns the loading / ok / not_applicable / error / disabled states; a module component only renders its own `data`. `LocationDetails.tsx` currently renders each module's data as raw JSON (`RawData`). **Replace it per module** as `WeatherModule.tsx` etc. are built.
+- **Auth handoff:** `AuthContext` stores `{ token, user }` (localStorage key `vantage.auth`) and exposes `login(token, user)` / `logout()` via `useAuth()`. There is no login UI yet; the login modal should call `login()` with the `{ token, user }` body from `POST /api/auth/login`. Saved Locations sends `Authorization: Bearer` and logs the user out on a 401.
+- **Checks:** workspace typecheck and `vite build` pass. Eight throwaway jsdom behavior tests (not committed) passed against a stubbed backend: all five ModuleCard states, Random success/failure/malformed response, Saved Locations as guest and signed in (load, select, delete, empty, retry, 401 logout), and the panel's default / selected / error states. **Not verified in a live browser:** the globe marker clearing and fly-to for Random/Saved, and the panel slide animation.
+
 | Date | Who | What | Key files |
 |---|---|---|---|
 | 2026-09-29 | Lance | Initial repo + folder skeleton | all placeholder files |
 | 2026-10-08 | Lance | Wireframes (7 screens, Figma) | Figma file |
 | 2026-10-15 | Lance | API accounts (shared team email) + `.env.example` | `.env.example` |
-| 2026-10-15 | hello-world-42 | Mapbox globe, search UI, dashboard panel shell, API client, frontend workspace | `frontend/**`, `shared/src/contract.ts` |
+| 2026-10-15 | Mario | Mapbox globe, search UI, dashboard panel shell, API client, frontend workspace | `frontend/**`, `shared/src/contract.ts` |
 | 2026-10-15 | Mohammed | Mapbox forward geocoding client | `backend/src/modules/geo/mapboxGeocoding.client.ts` |
-| 2026-10-15 | Aamir | DB schema + TS types (**on unmerged branch**) | `backend/src/db/**` on `feature/database-setup` |
+| 2026-10-15 | Aamir | Neon schema SQL + TS types (later merged) | `backend/src/db/migrations/001_initial_schema.sql`, `backend/src/db/schema.ts` |
 | 2026-10-27 | Lance | npm workspaces, Express app with `/api/health`, root `npm run dev`, `.gitignore`; merged with `dev` | `package.json`, `tsconfig.base.json`, `backend/**`, `.gitignore` |
-| 2026-10-27 | hello-world-42 | Globe height fix; single root `.env` (Vite `envDir`); proxy → 3000 | `Globe.tsx`, `vite.config.ts` |
+| 2026-10-27 | Mario | Globe height fix; single root `.env` (Vite `envDir`); proxy → 3000 | `Globe.tsx`, `vite.config.ts` |
 | 2026-10-27 | Lance | Backend loads root `.env`; zod upgraded to v4 (security fix); removed `jobs/` | `backend/src/server.ts`, `backend/package.json`, `.env.example` |
 | 2026-10-29 | Mohammed | NWS alerts client + 12 tests | `backend/src/modules/hazards/nwsAlerts.client.ts`, `backend/tests/nwsAlerts.client.test.ts` |
 | 2026-10-29 | Lance | Backend core: shared ModuleResult contract + zod schemas, env validation, grid snapping, memory cache + TTL policy, singleflight, module registry (NWS as hazards), aggregator, `GET /api/location`, 17 tests | `shared/src/contract.ts`, `shared/src/schemas.ts`, `shared/package.json`, `backend/src/config/env.ts`, `backend/src/lib/grid.ts`, `backend/src/lib/singleflight.ts`, `backend/src/cache/cache.ts`, `backend/src/cache/memoryCache.ts`, `backend/src/cache/ttlPolicy.ts`, `backend/src/aggregator/*`, `backend/src/routes/location.ts`, `backend/src/app.ts`, `backend/src/server.ts`, `backend/tests/{aggregator,cache,grid,location.route}.test.ts` |
+| 2026-11-15 | Lance | JSON error handler (no stack traces to clients), `lib/http.ts` timeout helper, root `npm test` script, 12 tests | `backend/src/middleware/errorHandler.ts`, `backend/src/lib/http.ts`, `backend/src/app.ts`, `backend/scripts/run-tests.mjs`, `backend/tests/{errorHandler,http}.test.ts`, `package.json`, `backend/package.json` |
+| 2026-11-14 | Mario | Dashboard panel (default + selected states), Random button, Saved Locations, generic ModuleCard, minimal auth context, location data hook | `frontend/src/components/{LocationPanel,modules,RandomButton,favorites}/**`, `frontend/src/{hooks,context,api,types.ts,App.tsx,main.tsx}`, `Globe.tsx` |
+| 2026-10-29 | Aamir | Neon pool, migrations 001–003, six seeded data sources, email/password auth, JWT + role middleware, Google OAuth, protected Favorites API | `backend/src/db/**`, `backend/src/auth/**`, `backend/src/middleware/authenticate.ts`, `backend/src/middleware/requireRole.ts`, `backend/src/routes/auth.ts`, `backend/src/routes/favorites.ts` |
 
 ---
 
 ## 7. Known Issues / Decisions Needed
 
+**Resolved (Sprint 2):**
+- **`password_hash` is nullable for Google users.** Migration `003_google_oauth.sql` drops `NOT NULL`, adds unique `google_sub`, and requires at least one auth method. *(Aamir)*
+- **`002_seed_data_sources.sql` seeds six providers** (Open-Meteo, USGS, NWS, NOAA SWPC, N2YO, Launch Library 2) and is safe to rerun. *(Aamir)*
+- **`feature/database-setup` is merged** into `dev` (PR #1), after merging `dev` in and keeping `dev`'s `.gitignore`. `feature/auth` is also merged (PR #5). *(Aamir)*
+
+**Open:**
+
 1. **Geocode shape mismatch.** `mapboxGeocoding.client.ts` returns `{ id, name, latitude, longitude }`, but the frontend expects the shared `GeocodeResult` `{ id, name, context?, lat, lng }`. The client should return `GeocodeResult` from `@vantage/shared`. *(Mohammed)*
 2. **`/api/geocode` route doesn't exist**, so search can't return results yet. *(Mohammed)*
-3. **`password_hash` is `NOT NULL`** in the schema, but Google sign-in users have no password. Make it nullable (or add an `auth_provider` column). *(Aamir)*
-4. **`002_seed_data_sources.sql` is empty.** It should insert one row per data source. *(Aamir)*
-5. **`feature/database-setup` isn't merged** and its `.gitignore` will conflict with `dev`. Merge `dev` into it first, keeping `dev`'s `.gitignore`. *(Aamir)*
-6. **No request timeout** in the geocoding client yet. Switch to `lib/http.ts` once it exists. *(Mohammed, after Lance's `http.ts`)*
-7. **Vite bundle > 500 kB** (Mapbox). Expected; not a problem for now.
-8. **No reverse geocoding yet, so the backend doesn't know a point's country.** NWS (US-only) needs it. Until then, `/api/location` accepts `?country=US`, and without it the hazards module returns `not_applicable`. Fix: add `reverseGeocode(lat, lng)` → ISO country code in `backend/src/modules/geo/`, then pass it as `resolveCountry` to `createAggregator` in `app.ts`. *(Mohammed for the client; Lance wires it in)*
-9. **`data_sources` check isn't wired yet.** The aggregator accepts `isEnabled(id)`; once the DB is merged it should read `data_sources.is_enabled`. *(Aamir + Lance)*
-10. **`CACHE_DRIVER=redis` isn't implemented**; the app always uses the memory cache for now.
+3. **No request timeout** in the geocoding client yet. `lib/http.ts` now exists: switch the client to `fetchJson(url, { service: "Mapbox", signal })`. *(Mohammed)*
+4. **Vite bundle > 500 kB** (Mapbox). Expected; not a problem for now.
+5. **No reverse geocoding yet, so the backend doesn't know a point's country.** NWS (US-only) needs it. Until then, `/api/location` accepts `?country=US`, and without it the hazards module returns `not_applicable`. Fix: add `reverseGeocode(lat, lng)` → ISO country code in `backend/src/modules/geo/`, then pass it as `resolveCountry` to `createAggregator` in `app.ts`. *(Mohammed for the client; Lance wires it in)*
+6. **`data_sources` check isn't wired yet.** The table is seeded, but the aggregator still defaults to "all enabled". It already accepts `isEnabled(id)`; once wired it should read `data_sources.is_enabled`. *(Aamir + Lance)*
+7. **`CACHE_DRIVER=redis` isn't implemented**; the app always uses the memory cache for now.
+8. **Random endpoint contract.** The frontend `RandomButton` calls `GET /api/random` and expects `{ lat: number, lng: number, name?: string }` (land-biased). Until the route exists the button shows "unavailable". Match this shape, or tell Mario what it will be. *(Mohammed)*
+9. **Where the JWT lives in the browser.** `AuthContext` keeps it in `localStorage` so Saved Locations survives reloads. Revisit when the login modal is built (localStorage is readable by any XSS; the alternative is memory-only or an httpOnly cookie). Also undecided: `GET /api/auth/google/callback` returns JSON, so the SPA needs a way to receive the token after the Google redirect. *(Aamir + Mario)*
+10. **`/api/location` returns every module in one response**, so the dashboard waits on the slowest module and shows all cards at once. There is no per-module endpoint for progressive loading. Decide whether that's acceptable. *(Lance)*
 
 ---
 
@@ -362,10 +409,11 @@ Claim an item by moving it to Section 5 with your files.
 
 - **Data modules:** air quality, astronomy (`suncalc`), space (N2YO, Launch Library 2, NOAA SWPC aurora), hazards (USGS, NWS, FIRMS, GVP), ocean (Open-Meteo Marine), static data (VIIRS, SEDAC)
 - **Offline preprocessing:** `scripts/preprocess-static/` for VIIRS + SEDAC → `data/static/`
-- **Middleware:** `errorHandler.ts`, `validate.ts`, `rateLimit.ts`
+- **Middleware still empty:** `validate.ts`, `rateLimit.ts` (`authenticate`, `requireRole` and `errorHandler` are done)
+- **Auth leftovers:** `POST /api/auth/logout`, `GET/PUT /api/profile`
 - **Optional cache pieces:** `cache/redisCache.ts` (Upstash), `lib/throttle.ts` (per-provider throttle)
-- **Frontend:** landing page, login/register modal (with Google), profile page, `Attribution.tsx`, favorites star in search results
-- **Admin API** (no UI): manage users, enable/disable data sources
+- **Frontend:** module components replacing the raw-JSON placeholder (Weather, AirQuality, Astronomy, Hazards, Ocean, SkyConditions, Space), landing page, login/register modal (with Google), profile page, `Attribution.tsx`, favorites star in search results (there is currently no way to *add* a favorite from the UI)
+- **Admin API** (no UI): manage users; enable/disable data sources
 - **Deployment** (hosting TBD) and production OAuth redirect URIs
 - **Class deliverables:** testing scenarios write-up, sprint reports
 
@@ -374,6 +422,14 @@ Claim an item by moving it to Section 5 with your files.
 ## 9. Change Log
 
 > Add one line per change: `YYYY-MM-DD · Name (GitHub) · agent-assisted? · what changed`
+
+- 2026-11-15 · Lance Santiago (LanceSan04) · agent-assisted · Added the JSON error handler (closes the stack-trace leak on 500s), `lib/http.ts` (`fetchJson`/`fetchText` with timeout and abort), and `npm test`; 99 tests pass. Updated Sections 3.2, 4, 5, 6, 7 (item 3) and 8; fixed my branch name in Section 5.
+
+- 2026-11-14 · Mario Sepriano (hello-world-42) · agent-assisted · Built the dashboard panel (default state + selected-location view), Random location button, Saved Locations, generic `ModuleCard`, minimal `AuthContext`/`useAuth`, and `useLocationData`; Globe now clears its marker when the selection is cleared. Confirmed the Section 5 claim; updated Sections 3.6, 4, 5, 6, 7 (items 8–10) and 8.
+
+- 2026-10-29 · Aamir Mohammad (amohammad12) · agent-assisted · Updated SPEC.md to match `dev` at `37e9abb`: filled in GitHub username, documented merged database/auth/OAuth/favorites work, Lance's aggregator/cache/contract/location API, endpoint and branch statuses, remaining profile/logout/admin work, and resolved known issues 3–5.
+
+- 2026-10-29 · Aamir Mohammad (amohammad12) · agent-assisted · Implemented Neon PostgreSQL (schema, pool, migrations 001–003, six seeded data sources), email/password auth (bcrypt + JWT), authenticate/requireRole middleware, Google OAuth (PKCE + `003_google_oauth.sql`), and the protected Favorites API; merged to `dev` via PRs #1 and #5.
 
 - 2026-10-29 · Lance Santiago (LanceSan04) · agent-assisted · Built backend core (contract, schemas, env, grid, cache, singleflight, registry, aggregator, `/api/location`) with 17 tests; registered Mohammed's NWS client as the hazards module; updated Sections 3.6, 4, 5, 6, 7. Corrected the NWS entry: it was pushed, not local-only.
 
