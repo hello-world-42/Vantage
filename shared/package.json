@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/contract.ts",
-    "./schemas": "./src/schemas.ts"
+    "./schemas": "./src/schemas.ts",
+    "./modules/weather": "./src/modules/weather.ts",
+    "./modules/earthquakes": "./src/modules/earthquakes.ts"
   },
   "dependencies": {
     "zod": "^4.6.7"
