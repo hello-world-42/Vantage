@@ -18,6 +18,8 @@ body {
 @theme {
   --color-vt-page: #111111;
   --color-vt-bar: #2a2a2a;
+  --color-vt-topbar: #191a1d; /* top bar + footer: darker than the wireframe grey */
+  --color-vt-topbar-deep: #121316;
   --color-vt-field: #3a3a3a;
   --color-vt-muted: #9a9a9a;
   --color-vt-blue: #4f86f7; /* wordmark, accents, focus */

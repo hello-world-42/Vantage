@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import type { MapSelection } from '../../types';
 import DefaultState from './DefaultState';
 import LocationDetails from './LocationDetails';
-import { PANEL_TRANSITION_MS, PANEL_WIDTH } from './layout';
+import { PANEL_MARGIN, PANEL_TRANSITION_MS, PANEL_WIDTH } from './layout';
 
 interface LocationPanelProps {
   /** The selected point, or null for the default state (Random + Saved Locations). */
@@ -26,30 +26,31 @@ function formatCoords(lat: number, lng: number) {
 }
 
 /**
- * Dashboard shell. Right-hand side panel on desktop, bottom sheet on mobile.
- * Always mounted and slid off-screen when collapsed, so the transition runs both ways.
+ * Dashboard shell. Desktop: a rounded card floating inside the map area (Figma screens 03, 06).
+ * Mobile: a bottom sheet. Always mounted and slid off-screen when collapsed, so the transition
+ * runs both ways; while collapsed, a small tab brings it back (screen 02).
  */
 export default function LocationPanel({ location, open, onOpen, onClose, onClear, onSelect, onRequestLogin }: LocationPanelProps) {
+  const geometry = {
+    '--panel-width': `${PANEL_WIDTH}px`,
+    '--panel-margin': `${PANEL_MARGIN}px`,
+  } as CSSProperties;
+
   return (
     <>
       <aside
         id="location-panel"
         aria-label="Location dashboard"
         inert={!open}
-        style={
-          {
-            '--panel-width': `${PANEL_WIDTH}px`,
-            transitionDuration: `${PANEL_TRANSITION_MS}ms`,
-          } as CSSProperties
-        }
+        style={{ ...geometry, transitionDuration: `${PANEL_TRANSITION_MS}ms` }}
         className={[
-          'absolute z-20 flex flex-col border-white/10 bg-slate-950/85 text-slate-100 shadow-2xl backdrop-blur-md',
+          'absolute z-20 flex flex-col overflow-hidden border-white/10 bg-slate-950/85 text-slate-100 shadow-2xl backdrop-blur-md',
           'transition-transform ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none',
-          // desktop: full-height panel on the right
-          'md:inset-y-0 md:right-0 md:w-(--panel-width) md:border-l',
+          // desktop: floating rounded card, inset from the top, right and bottom edges
+          'md:top-(--panel-margin) md:right-(--panel-margin) md:bottom-(--panel-margin) md:w-(--panel-width) md:rounded-2xl md:border',
           // mobile: bottom sheet
           'max-md:inset-x-0 max-md:bottom-0 max-md:h-1/2 max-md:rounded-t-2xl max-md:border-t',
-          open ? 'translate-x-0 translate-y-0' : 'md:translate-x-full max-md:translate-y-full',
+          open ? 'translate-x-0 translate-y-0' : 'md:translate-x-[calc(100%+var(--panel-margin))] max-md:translate-y-full',
         ].join(' ')}
       >
         <header className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
@@ -99,15 +100,26 @@ export default function LocationPanel({ location, open, onOpen, onClose, onClear
         </div>
       </aside>
 
-      {/* Reopen handle: shown whenever the dashboard is collapsed. */}
+      {/* Collapsed tab (Figma screen 02): a tall pill on the right edge with ◀. On mobile it's a
+          short pill at the bottom with ▲, since the sheet slides up from there. */}
       {!open && (
         <button
           type="button"
           onClick={onOpen}
+          aria-label="Open dashboard"
           aria-controls="location-panel"
-          className="absolute right-4 top-4 z-10 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-sm text-slate-100 shadow-lg backdrop-blur hover:bg-slate-900/80"
+          aria-expanded={false}
+          style={geometry}
+          className={[
+            'absolute z-10 grid place-items-center rounded-full border border-white/10 bg-[#2f3033]/90 text-slate-300 shadow-lg backdrop-blur',
+            'transition-colors duration-100 hover:bg-[#3a3b3f] hover:text-white active:bg-[#232427] active:text-slate-400',
+            'md:right-(--panel-margin) md:top-1/2 md:h-72 md:max-h-[60%] md:w-8 md:-translate-y-1/2',
+            'max-md:bottom-3 max-md:left-1/2 max-md:h-8 max-md:w-32 max-md:-translate-x-1/2',
+          ].join(' ')}
         >
-          Open dashboard
+          <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" className="max-md:rotate-90">
+            <path d="M17 4 6 12l11 8z" fill="currentColor" />
+          </svg>
         </button>
       )}
     </>

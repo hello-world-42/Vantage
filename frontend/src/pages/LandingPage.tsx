@@ -10,7 +10,7 @@ export default function LandingPage() {
       <TopBar />
 
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-14 text-center">
-        <GlobeIllustration className="w-44 sm:w-52" />
+        <GlobeIllustration className="w-56 sm:w-64" />
 
         <h1 className="m-0 mt-10 text-5xl font-extrabold tracking-wide text-white sm:text-6xl">VANTAGE</h1>
         <p className="m-0 mt-5 text-xl text-vt-muted sm:text-2xl">Explore the World from Every Angle</p>
@@ -26,7 +26,7 @@ export default function LandingPage() {
         </Link>
       </main>
 
-      <footer className="border-t border-black/40 bg-vt-bar px-4 py-3.5 sm:px-10">
+      <footer className="border-t border-white/5 bg-vt-topbar-deep px-4 py-3.5 sm:px-10">
         <Attribution />
       </footer>
     </div>

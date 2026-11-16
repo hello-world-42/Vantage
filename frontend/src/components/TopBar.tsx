@@ -40,7 +40,7 @@ function AccountMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Account menu for ${user.username}`}
-        className="grid size-9 place-items-center rounded-full bg-vt-blue text-sm font-semibold text-white hover:brightness-110"
+        className="grid size-9 place-items-center rounded-full bg-vt-blue text-sm font-semibold text-white ring-2 ring-white/10 transition-shadow hover:shadow-[0_0_16px_rgba(79,134,247,0.5)]"
       >
         {initial}
       </button>
@@ -74,19 +74,25 @@ export default function TopBar() {
   const { openAuth } = useAuthModal();
 
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-black/40 bg-vt-bar px-4 sm:px-7">
+    <header className="relative z-30 flex h-14 shrink-0 items-center justify-between gap-4 bg-gradient-to-b from-vt-topbar to-vt-topbar-deep px-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.9)] sm:px-7">
+      {/* Hairline glow along the bottom edge: brightest in the middle, fading out at the sides. */}
+      <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-vt-blue/60 to-transparent" />
       <Logo />
       {user ? (
         <AccountMenu />
       ) : (
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => openAuth('login')} className="rounded-md bg-vt-field px-4 py-1.5 text-sm text-white hover:bg-[#474747]">
+          <button
+            type="button"
+            onClick={() => openAuth('login')}
+            className="rounded-md border border-white/10 bg-white/[0.06] px-4 py-1.5 text-sm text-white transition-colors hover:border-white/20 hover:bg-white/[0.1]"
+          >
             Log in
           </button>
           <button
             type="button"
             onClick={() => openAuth('register')}
-            className="rounded-md bg-vt-action px-4 py-1.5 text-sm font-medium text-white hover:bg-vt-action-hover"
+            className="rounded-md bg-vt-action px-4 py-1.5 text-sm font-medium text-white shadow-[0_0_0_1px_rgba(126,163,255,0.25)] transition-[background-color,box-shadow] hover:bg-vt-action-hover hover:shadow-[0_0_18px_rgba(79,134,247,0.45)]"
           >
             Register
           </button>

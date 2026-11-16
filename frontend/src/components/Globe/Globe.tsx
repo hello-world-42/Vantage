@@ -4,6 +4,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import type { MapSelection } from '../../types';
 import {
   DESKTOP_MIN_WIDTH,
+  PANEL_MARGIN,
   PANEL_TRANSITION_MS,
   PANEL_WIDTH,
   SHEET_HEIGHT_RATIO,
@@ -24,6 +25,10 @@ const MAP_STYLE = 'mapbox://styles/mapbox/outdoors-v12';
 const TOKEN_MISSING = !MAPBOX_TOKEN || MAPBOX_TOKEN.includes('your_public_token');
 const NO_PADDING: mapboxgl.PaddingOptions = { top: 0, right: 0, bottom: 0, left: 0 };
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3); // matches the panel's CSS easing
+// Each half of the zoom pill. `active:` dims the half while it's pressed.
+const zoomButtonClass =
+  'grid h-11 place-items-center text-white transition-colors duration-100 hover:bg-white/10 active:bg-black/40 active:text-slate-300 ' +
+  'disabled:cursor-default disabled:text-slate-500 disabled:hover:bg-transparent focus-visible:outline-offset-[-3px]';
 
 /**
  * Camera padding reserves the area covered by the dashboard. Mapbox centers the
@@ -34,7 +39,7 @@ function getPadding(panelOpen: boolean, container: HTMLElement): mapboxgl.Paddin
   if (!panelOpen) return NO_PADDING;
   const isDesktop = window.matchMedia(`(min-width: ${DESKTOP_MIN_WIDTH}px)`).matches;
   return isDesktop
-    ? { ...NO_PADDING, right: PANEL_WIDTH }
+    ? { ...NO_PADDING, right: PANEL_WIDTH + PANEL_MARGIN } // the card floats PANEL_MARGIN in from the edge
     : { ...NO_PADDING, bottom: Math.round(container.clientHeight * SHEET_HEIGHT_RATIO) };
 }
 
@@ -44,6 +49,7 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
   const markerRef = useRef<mapboxgl.Marker | null>(null);
   const prevSelectedRef = useRef<MapSelection | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [zoomLimits, setZoomLimits] = useState({ canZoomIn: true, canZoomOut: true });
 
   // Latest values for long-lived map listeners (avoids re-creating the map).
   const onSelectRef = useRef(onSelect);
@@ -102,6 +108,13 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
         'star-intensity': 0.7,
       });
     });
+
+    // Grey out a zoom button once the map can't zoom further that way.
+    const syncZoomLimits = () => {
+      const zoom = map.getZoom();
+      setZoomLimits({ canZoomIn: zoom < map.getMaxZoom() - 0.01, canZoomOut: zoom > map.getMinZoom() + 0.01 });
+    };
+    map.on('zoomend', syncZoomLimits);
 
     map.on('click', (e) => {
       const { lat, lng } = e.lngLat.wrap(); // normalize longitude into [-180, 180]
@@ -176,6 +189,43 @@ export default function Globe({ selected, panelOpen, onSelect }: GlobeProps) {
       <div className="absolute inset-0">
         <div ref={containerRef} className="h-full w-full" />
       </div>
+
+      {/* Zoom control: one upright pill split in half, bottom left, above the Mapbox logo.
+          On mobile it rides above the bottom sheet while the sheet is open. */}
+      <div
+        role="group"
+        aria-label="Zoom"
+        className={[
+          'absolute left-4 z-10 flex w-10 flex-col overflow-hidden rounded-full border border-white/10 bg-[#2f3033]/90 shadow-lg backdrop-blur sm:left-7',
+          'bottom-12 transition-[bottom] duration-500 motion-reduce:transition-none',
+          panelOpen ? 'max-md:bottom-[calc(50%+0.75rem)]' : '',
+        ].join(' ')}
+      >
+        <button
+          type="button"
+          aria-label="Zoom in"
+          disabled={!zoomLimits.canZoomIn}
+          onClick={() => mapRef.current?.zoomIn({ duration: 300 })}
+          className={zoomButtonClass}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <div aria-hidden="true" className="mx-2 h-px bg-white/15" />
+        <button
+          type="button"
+          aria-label="Zoom out"
+          disabled={!zoomLimits.canZoomOut}
+          onClick={() => mapRef.current?.zoomOut({ duration: 300 })}
+          className={zoomButtonClass}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 12h14" />
+          </svg>
+        </button>
+      </div>
+
       {mapError && (
         <div role="alert" className="pointer-events-none absolute inset-0 grid place-items-center p-6 text-center">
           <p className="max-w-sm rounded-xl border border-red-400/30 bg-red-950/60 p-4 text-sm text-red-200">{mapError}</p>
