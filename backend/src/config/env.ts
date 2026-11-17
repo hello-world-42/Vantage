@@ -59,6 +59,11 @@ function loadEnv(): Env {
     console.error("  See .env.example for the expected variables.\n");
     process.exit(1);
   }
+  // The auth and database code reads a few values straight from process.env. Copy this
+  // file's defaults there, so a .env that leaves them out behaves the same everywhere
+  // (without this, a missing JWT_EXPIRES_IN made every login fail with a 500).
+  process.env.JWT_EXPIRES_IN ??= parsed.data.JWT_EXPIRES_IN;
+  process.env.NODE_ENV ??= parsed.data.NODE_ENV;
   return parsed.data;
 }
 

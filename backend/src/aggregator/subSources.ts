@@ -26,13 +26,19 @@ export interface CombineOptions {
   /** Reason used when every sub-source is not_applicable. */
   notApplicableReason: string;
   logError?: (message: string, error: unknown) => void;
+  /** Admin switch: a sub-source whose provider is off is left out of the card. Defaults to all on. */
+  isSourceEnabled?: (source: string) => boolean | Promise<boolean>;
 }
 
 export async function combineSources(
-  sources: SubSource[],
+  allSources: SubSource[],
   context: LocationContext,
   options: CombineOptions,
 ): Promise<ProviderOutcome<Record<string, SourceResult<unknown>>>> {
+  const isEnabled = options.isSourceEnabled;
+  const sources = isEnabled
+    ? (await Promise.all(allSources.map(async (sub) => ((await isEnabled(sub.source)) ? sub : null)))).filter((sub): sub is SubSource => sub !== null)
+    : allSources;
   const logError = options.logError ?? ((message, error) => console.error(message, error));
   const settled = await Promise.allSettled(sources.map((sub) => sub.fetch(context)));
 

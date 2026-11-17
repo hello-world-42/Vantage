@@ -64,6 +64,12 @@ export interface AuthRouterOptions {
   findUserByEmail?: FindUserByEmail;
   googleOAuth?: GoogleOAuthProvider;
   resolveGoogleUser?: (identity: GoogleIdentity) => Promise<User>;
+  /**
+   * The frontend's origin (env.CLIENT_URL). When set, the Google callback redirects the
+   * browser to `${clientUrl}/auth/callback#token=...&user=...` (or `#error=...`) so the
+   * single-page app can finish the login. When omitted it answers with JSON, as before.
+   */
+  clientUrl?: string;
 }
 
 async function insertUserIntoDatabase(user: NewUserRecord): Promise<RegisteredUserRow> {
@@ -269,6 +275,13 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
     }
   });
 
+  // Sends the browser back to the frontend. Values ride in the URL fragment (#...), which is
+  // never sent to a server, so the token stays out of access logs.
+  const clientCallback = options.clientUrl ? `${options.clientUrl.replace(/\/+$/, "")}/auth/callback` : null;
+  const redirectToClient = (res: Response, fragment: Record<string, string>) => {
+    res.redirect(`${clientCallback}#${new URLSearchParams(fragment).toString()}`);
+  };
+
   router.get("/google/callback", async (req, res, next) => {
     const code = getQueryString(req.query.code);
     const receivedState = getQueryString(req.query.state);
@@ -286,11 +299,14 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
       !statesMatch(expectedState, receivedState) ||
       typeof codeVerifier !== "string"
     ) {
+      if (clientCallback) return redirectToClient(res, { error: "state" });
       res.status(400).json({ error: "Invalid OAuth state" });
       return;
     }
 
     if (!code) {
+      // Also where Google sends users who pressed "Cancel" (?error=access_denied, no code).
+      if (clientCallback) return redirectToClient(res, { error: "failed" });
       res.status(400).json({ error: "Google authorization code is required" });
       return;
     }
@@ -300,17 +316,28 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
       const user = await resolveGoogleUser(identity);
       const token = signUserToken(user);
 
+      if (clientCallback) {
+        const encodedUser = Buffer.from(JSON.stringify(sanitizedUser(user)), "utf8").toString("base64url");
+        return redirectToClient(res, { token, user: encodedUser });
+      }
       res.json({ token, user: sanitizedUser(user) });
     } catch (error) {
       if (error instanceof GoogleAuthenticationError) {
+        if (clientCallback) return redirectToClient(res, { error: "failed" });
         res.status(401).json({ error: "Google authentication failed" });
         return;
       }
       if (error instanceof GoogleAccountConflictError) {
+        if (clientCallback) return redirectToClient(res, { error: "conflict" });
         res
           .status(409)
           .json({ error: "An account with this email already exists" });
         return;
+      }
+      if (clientCallback) {
+        // e.g. the database is down: log it here, and give the user the app's error page, not raw JSON.
+        console.error("[auth] Google callback failed:", error);
+        return redirectToClient(res, { error: "failed" });
       }
       next(error);
     }

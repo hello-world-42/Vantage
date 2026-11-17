@@ -48,11 +48,24 @@ export interface SatellitePass {
   durationSeconds: number;
 }
 
+export type AuroraLevel = "none" | "low" | "moderate" | "high";
+
+export interface AuroraData {
+  /** Chance (0–100) of aurora directly overhead in the next ~30–90 minutes (NOAA OVATION model). */
+  probability: number;
+  level: AuroraLevel;
+  /** Latest planetary K-index, 0–9. 5 or more is a geomagnetic storm. null when unavailable. */
+  kp: number | null;
+  kpAt: string | null;
+  observedAt: string;
+  forecastFor: string;
+}
+
 /**
- * One key per space source. A key is missing when that source isn't configured
- * (satellitePasses needs N2YO_API_KEY) or isn't built yet (aurora, Mohammed).
+ * One key per space source. satellitePasses is missing when N2YO_API_KEY isn't set.
  */
 export interface SpaceData {
   launches?: SourceResult<LaunchesData>;
   satellitePasses?: SourceResult<SatellitePass[]>;
+  aurora?: SourceResult<AuroraData>;
 }

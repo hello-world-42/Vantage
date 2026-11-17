@@ -72,6 +72,10 @@ export interface LocationResponse {
   cell: GridCell;
   /** ISO 3166-1 alpha-2 code, or null when the country isn't known yet */
   countryCode: string | null;
+  /** IANA time zone of the cell, e.g. "America/New_York", for showing local times. */
+  timeZone?: string | null;
+  /** Name of the place at the requested point, when it could be looked up (needs MAPBOX_TOKEN). */
+  place?: { name: string; context?: string } | null;
   /** One entry per registered module */
   modules: Partial<Record<ModuleId, ModuleResult>>;
   generatedAt: string;

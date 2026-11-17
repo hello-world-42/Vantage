@@ -13,6 +13,8 @@ import { createHazardsModule } from "../modules/hazards/hazards.service.js";
 import { createAstronomyModule } from "../modules/astronomy/astronomy.service.js";
 import { createSpaceModule } from "../modules/space/space.service.js";
 import { createSkyConditionsModule } from "../modules/staticData/staticData.service.js";
+import { createAirQualityModule } from "../modules/airQuality/airQuality.service.js";
+import { createOceanModule } from "../modules/ocean/ocean.service.js";
 
 /**
  * - cell:     data differs per grid cell (weather, air quality). Cached per cell.
@@ -61,9 +63,13 @@ export interface RegistryConfig {
    * from the per-cell cache so thousands of cell entries can't push a list out.
    */
   listCache: Cache;
+  /** The per-cell cache the aggregator uses; the space card keeps satellite passes in it. */
+  cellCache?: Cache;
   /** Folder with the preprocessed grids (data/static). */
   staticDataDir?: string;
   logError?: (message: string, error: unknown) => void;
+  /** Admin switch (data_sources table) for the providers inside combined cards. */
+  isSourceEnabled?: (source: string) => boolean | Promise<boolean>;
 }
 
 /* ───────────────────────── Modules ───────────────────────── */
@@ -84,9 +90,11 @@ export function weatherModule(): ModuleDefinition<WeatherData> {
 export function createModuleRegistry(config: RegistryConfig): ModuleDefinition[] {
   const modules: Array<ModuleDefinition | null> = [
     weatherModule(),
-    createHazardsModule({ nwsUserAgent: config.nwsUserAgent, logError: config.logError }),
+    createAirQualityModule(),
+    createHazardsModule({ nwsUserAgent: config.nwsUserAgent, logError: config.logError, isSourceEnabled: config.isSourceEnabled }),
     createAstronomyModule(),
-    createSpaceModule({ cache: config.listCache, n2yoApiKey: config.n2yoApiKey, logError: config.logError }),
+    createSpaceModule({ cache: config.listCache, cellCache: config.cellCache, n2yoApiKey: config.n2yoApiKey, logError: config.logError, isSourceEnabled: config.isSourceEnabled }),
+    createOceanModule(),
     // null until scripts/preprocess-static has generated data/static/*.bin
     createSkyConditionsModule({ dir: config.staticDataDir }),
   ];

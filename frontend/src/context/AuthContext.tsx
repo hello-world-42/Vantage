@@ -3,6 +3,7 @@
 // `{ token, user }` body returned by POST /api/auth/login (or the Google callback).
 import { createContext, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { isTokenExpired } from '../lib/jwt';
 import type { AuthUser } from '../types';
 
 const STORAGE_KEY = 'vantage.auth';
@@ -17,6 +18,8 @@ export interface AuthContextValue {
   token: string | null;
   login: (token: string, user: AuthUser) => void;
   logout: () => void;
+  /** Replace the stored user after a profile change (the token stays the same). */
+  updateUser: (user: AuthUser) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -27,6 +30,10 @@ function loadSession(): Session | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Session>;
     if (typeof parsed.token === 'string' && parsed.user && typeof parsed.user === 'object') {
+      if (isTokenExpired(parsed.token)) {
+        saveSession(null); // an expired login would only cause a 401 on the first request
+        return null;
+      }
       return { token: parsed.token, user: parsed.user };
     }
   } catch {
@@ -58,9 +65,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
+  const updateUser = useCallback((user: AuthUser) => {
+    setSession((current) => {
+      if (!current) return current;
+      const next = { token: current.token, user };
+      saveSession(next);
+      return next;
+    });
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user: session?.user ?? null, token: session?.token ?? null, login, logout }),
-    [session, login, logout],
+    () => ({ user: session?.user ?? null, token: session?.token ?? null, login, logout, updateUser }),
+    [session, login, logout, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

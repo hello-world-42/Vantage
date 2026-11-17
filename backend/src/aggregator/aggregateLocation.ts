@@ -2,6 +2,7 @@
 // Responsibilities that modules don't have to think about:
 //   • grid snapping            • disabled-provider check     • caching (per module TTL)
 //   • singleflight             • per-module timeout          • turning throws into "error"
+import tzlookup from "tz-lookup";
 import type { LocationResponse, ModuleId, ModuleResult } from "@vantage/shared";
 import type { Cache } from "../cache/cache.js";
 import { normalizeLng, snapToCell } from "../lib/grid.js";
@@ -15,6 +16,10 @@ export interface AggregatorDeps {
   isEnabled?: (id: ModuleId) => boolean | Promise<boolean>;
   /** Looks up the country for a point. Later backed by Mapbox reverse geocoding. */
   resolveCountry?: (lat: number, lng: number) => Promise<string | null>;
+  /** Names the place at a point for the dashboard header. Failures are logged and become null. */
+  resolvePlace?: (lat: number, lng: number) => Promise<{ name: string; context?: string } | null>;
+  /** IANA time zone for a point. Defaults to an offline lookup (tz-lookup). */
+  resolveTimeZone?: (lat: number, lng: number) => string | null;
   /** Safety net so one slow provider can't hold up the whole response. */
   moduleTimeoutMs?: number;
   /** Where real error details go (never to the client). */
@@ -30,6 +35,8 @@ export interface LocationInput {
 }
 
 export type AggregateLocation = (input: LocationInput) => Promise<LocationResponse>;
+
+const defaultTimeZone = (lat: number, lng: number): string | null => tzlookup(lat, lng) ?? null;
 
 class ModuleTimeoutError extends Error {
   constructor(id: string, ms: number) {
@@ -128,7 +135,22 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
     }
 
     const base = { query: { lat: input.lat, lng }, cell, countryCode };
+    // The place name is looked up alongside the modules, so it never slows the response down by itself.
+    const placeLookup = deps.resolvePlace
+      ? deps.resolvePlace(input.lat, lng).catch((error) => {
+          logError("[aggregator] place lookup failed:", error);
+          return null;
+        })
+      : Promise.resolve(null);
     const settled = await Promise.allSettled(deps.modules.map((module) => runModule(module, base)));
+    const place = await placeLookup;
+
+    let timeZone: string | null = null;
+    try {
+      timeZone = (deps.resolveTimeZone ?? defaultTimeZone)(cell.lat, cell.lng);
+    } catch {
+      /* out-of-range input can't reach here; keep null rather than fail the response */
+    }
 
     const modules: LocationResponse["modules"] = {};
     deps.modules.forEach((module, i) => {
@@ -139,6 +161,6 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
           : { status: "error", message: `Couldn't load ${module.label.toLowerCase()} right now.` };
     });
 
-    return { query: base.query, cell, countryCode, modules, generatedAt: now().toISOString() };
+    return { query: base.query, cell, countryCode, timeZone, place, modules, generatedAt: now().toISOString() };
   };
 }

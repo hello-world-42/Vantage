@@ -38,6 +38,26 @@ const atlanta: LocationContext = {
 };
 const NOW = new Date("2026-11-16T04:00:00Z");
 
+/** N2YO's documented example, moved to shortly after NOW so the passes count as upcoming. */
+const startUTC = Math.floor(NOW.getTime() / 1000) + 3600;
+const n2yoUpcoming = {
+  ...n2yoExample,
+  passes: [{ ...n2yoExample.passes[0], startUTC, maxUTC: startUTC + 320, endUTC: startUTC + 635 }],
+};
+
+/** A fake NOAA SWPC: 40% aurora chance over 65°N 25°E, 0 elsewhere; Kp 4.33. */
+const swpcFetch = (async (input: string | URL | Request) => {
+  const url = String(input);
+  if (url.includes("ovation")) {
+    return new Response(JSON.stringify({
+      "Observation Time": "2026-11-16T03:50:00Z", "Forecast Time": "2026-11-16T04:40:00Z",
+      coordinates: [[25, 65, 40], [276, 34, 0], [0, -90, 1]],
+    }));
+  }
+  return new Response(JSON.stringify([{ time_tag: "2026-11-16T00:00:00", Kp: 3 }, { time_tag: "2026-11-16T03:00:00", Kp: 4.33 }]));
+}) as typeof fetch;
+const swpc = { fetch: swpcFetch };
+
 /* ───── Launch Library client ───── */
 
 test("Launch Library: parses the real response and skips malformed entries", async () => {
@@ -106,12 +126,12 @@ test("N2YO: no passes, unknown brightness, and errors that don't leak the key", 
 /* ───── Space module ───── */
 
 test("space card: launches plus satellite passes for the cell", async () => {
-  const space = createSpaceModule({
+  const space = createSpaceModule({ swpc,
     cache: createMemoryCache(),
     n2yoApiKey: "k",
     now: () => NOW,
     launchLibrary: { fetch: recordingFetch(launchFixture).fn },
-    n2yo: { fetch: recordingFetch(n2yoExample).fn },
+    n2yo: { fetch: recordingFetch(n2yoUpcoming).fn },
   });
   const outcome = await space.fetch(atlanta);
   assert.equal(outcome.status, "ok");
@@ -122,28 +142,28 @@ test("space card: launches plus satellite passes for the cell", async () => {
 });
 
 test("space card: without N2YO_API_KEY there's no satellite section at all", async () => {
-  const space = createSpaceModule({ cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: recordingFetch(launchFixture).fn } });
+  const space = createSpaceModule({ swpc, cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: recordingFetch(launchFixture).fn } });
   const outcome = await space.fetch(atlanta);
   assert.equal(outcome.status, "ok");
-  assert.deepEqual(Object.keys(outcome.status === "ok" ? (outcome.data as object) : {}), ["launches"]);
+  assert.deepEqual(Object.keys(outcome.status === "ok" ? (outcome.data as object) : {}), ["launches", "aurora"]);
 });
 
 test("space card: the launch list is fetched once for all cells", async () => {
   const ll = recordingFetch(launchFixture);
-  const space = createSpaceModule({ cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: ll.fn } });
+  const space = createSpaceModule({ swpc, cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: ll.fn } });
   await space.fetch(atlanta);
   await space.fetch({ ...atlanta, cell: { key: "other", lat: -33.9, lng: 151.2, sizeDeg: 0.25 } });
   assert.equal(ll.urls.length, 1);
 });
 
 test("space card: when N2YO's budget is used up, passes show an error row and launches still show", async () => {
-  const space = createSpaceModule({
+  const space = createSpaceModule({ swpc,
     cache: createMemoryCache(),
     n2yoApiKey: "k",
     now: () => NOW,
     logError: () => {},
     launchLibrary: { fetch: recordingFetch(launchFixture).fn },
-    n2yo: { fetch: recordingFetch(n2yoExample).fn, throttle: createThrottle({ name: "N2YO", limit: 1, windowMs: 3_600_000 }) },
+    n2yo: { fetch: recordingFetch(n2yoUpcoming).fn, throttle: createThrottle({ name: "N2YO", limit: 1, windowMs: 3_600_000 }) },
   });
   // First cell spends the budget on its first satellite; the other two calls are refused but one succeeded.
   const first = await space.fetch(atlanta);
@@ -158,8 +178,8 @@ test("space card: when N2YO's budget is used up, passes show an error row and la
 test("space card: if one satellite's lookup fails, the others show, it's logged, and it retries soon", async () => {
   const logged: unknown[] = [];
   let call = 0;
-  const flaky = (async () => (++call === 1 ? new Response("down", { status: 500 }) : new Response(JSON.stringify(n2yoExample)))) as typeof fetch;
-  const space = createSpaceModule({
+  const flaky = (async () => (++call === 1 ? new Response("down", { status: 500 }) : new Response(JSON.stringify(n2yoUpcoming)))) as typeof fetch;
+  const space = createSpaceModule({ swpc,
     cache: createMemoryCache(),
     n2yoApiKey: "k",
     now: () => NOW,
@@ -180,4 +200,55 @@ test("pickLaunches: a launch that already succeeded or failed isn't listed as up
   const picked = pickLaunches(launches, atlanta.cell, new Date("2026-11-15T18:40:00Z"));
   assert.ok(!picked.upcoming.some((l) => l.status === "Failure"));
   assert.ok(!picked.nearby.some((l) => l.name.startsWith("Vulcan")));
+});
+
+/* ───── Aurora (NOAA SWPC) ───── */
+
+test("aurora: chance overhead comes from the nearest 1° cell, with the latest Kp", async () => {
+  const space = createSpaceModule({ swpc, cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: recordingFetch(launchFixture).fn } });
+  const tromso = await space.fetch({ ...atlanta, cell: { key: "n", lat: 65.125, lng: 24.875, sizeDeg: 0.25 } });
+  const north = (tromso.status === "ok" ? tromso.data : {}) as SpaceData;
+  assert.deepEqual(north.aurora, {
+    status: "ok", source: "NOAA SWPC",
+    data: { probability: 40, level: "moderate", kp: 4.33, kpAt: "2026-11-16T03:00:00.000Z", observedAt: "2026-11-16T03:50:00.000Z", forecastFor: "2026-11-16T04:40:00.000Z" },
+  });
+  assert.equal(tromso.ttlSeconds, 15 * 60, "the card refreshes every 15 minutes so the aurora stays current");
+
+  const south = (await space.fetch(atlanta)) ;
+  const data = (south.status === "ok" ? south.data : {}) as SpaceData;
+  assert.equal(data.aurora?.status === "ok" && data.aurora.data.probability, 0);
+  assert.equal(data.aurora?.status === "ok" && data.aurora.data.level, "none");
+});
+
+test("aurora: the worldwide grid is downloaded once and shared by every location", async () => {
+  let ovationCalls = 0;
+  const counting = (async (input: string | URL | Request) => {
+    if (String(input).includes("ovation")) ovationCalls++;
+    return swpcFetch(input);
+  }) as typeof fetch;
+  const space = createSpaceModule({ swpc: { fetch: counting }, cache: createMemoryCache(), now: () => NOW, launchLibrary: { fetch: recordingFetch(launchFixture).fn } });
+  await space.fetch(atlanta);
+  await space.fetch({ ...atlanta, cell: { key: "b", lat: 60, lng: 10, sizeDeg: 0.25 } });
+  assert.equal(ovationCalls, 1);
+});
+
+test("aurora: NOAA being down leaves an error row; launches still show", async () => {
+  const down = (async () => new Response("no", { status: 503 })) as typeof fetch;
+  const space = createSpaceModule({ swpc: { fetch: down }, cache: createMemoryCache(), now: () => NOW, logError: () => {}, launchLibrary: { fetch: recordingFetch(launchFixture).fn } });
+  const outcome = await space.fetch(atlanta);
+  const data = (outcome.status === "ok" ? outcome.data : {}) as SpaceData;
+  assert.equal(data.launches?.status, "ok");
+  assert.deepEqual(data.aurora, { status: "error", source: "NOAA SWPC", message: "Couldn't load the aurora forecast right now." });
+});
+
+test("satellite passes: a cell's passes are reused for hours, so N2YO isn't asked again every 15 minutes", async () => {
+  const n2yo = recordingFetch(n2yoUpcoming);
+  const space = createSpaceModule({
+    swpc, cache: createMemoryCache(), cellCache: createMemoryCache(), n2yoApiKey: "k", now: () => NOW,
+    launchLibrary: { fetch: recordingFetch(launchFixture).fn }, n2yo: { fetch: n2yo.fn },
+  });
+  await space.fetch(atlanta);
+  const again = await space.fetch(atlanta);
+  assert.equal(n2yo.urls.length, 3, "three satellites, asked once");
+  assert.equal(again.status === "ok" && (again.data as SpaceData).satellitePasses?.status, "ok");
 });

@@ -1,6 +1,6 @@
 # Vantage
 
-A 3D interactive globe with live data for any spot on Earth. Click the globe, search for a place, or jump to a random location, and a dashboard shows hazards, sun and moon, rocket launches and satellite passes, and more (weather, air quality and ocean are on the way).
+A 3D interactive globe with live data for any spot on Earth. Click the globe, search for a place, or jump to a random location, and a dashboard shows weather, air quality, hazards (alerts and earthquakes), sun and moon, aurora, rocket launches, satellite passes and ocean conditions. Signed-in users can save places and manage their profile.
 
 Team project for Software Engineering at Georgia State University.
 
@@ -33,12 +33,31 @@ Fill in what you have. The minimum to see something:
 |---|---|
 | `VITE_MAPBOX_TOKEN` | The globe (public token, starts with `pk.`) |
 | `NWS_USER_AGENT` | US severe-weather alerts. Any text that names the app and a contact, e.g. `Vantage (you@example.com)` |
-| `DATABASE_URL`, `JWT_SECRET` | Login, register and saved locations. `JWT_SECRET` must be at least 32 characters |
+| `DATABASE_URL`, `JWT_SECRET` | Login, register, saved locations, profile and the admin switches. `JWT_SECRET` must be at least 32 characters |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Login with Google |
 | `N2YO_API_KEY` | Satellite passes on the space card |
-| `MAPBOX_TOKEN` | Search (server-side geocoding) |
+| `MAPBOX_TOKEN` | Search, and the place name shown for a clicked point (server-side geocoding) |
+
+Weather, air quality, ocean, earthquakes, aurora, launches and sun/moon need no key at all.
 
 Never commit `.env`. It's git-ignored; only `.env.example` (no real values) is committed. Ask the team for the shared keys.
+
+## Database
+
+Login and saved locations need PostgreSQL (we use Neon). Put its connection string in `DATABASE_URL`, then create or update the tables:
+
+```bash
+npm run db:migrate              # applies any new files in backend/src/db/migrations
+npm run db:migrate -- --status  # just shows what is applied
+```
+
+It's safe to run on our shared database: it records what's already there and only applies what's missing.
+
+To make yourself an admin (for the `/api/admin` routes), run this in the database and log in again:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'you@example.com';
+```
 
 ## Run it
 
@@ -69,6 +88,7 @@ Run from the repo root.
 | `npm test` | All backend tests (no `.env` or internet needed) |
 | `npm run typecheck` | TypeScript checks for every workspace, tests included |
 | `npm run build` | Production build of backend and frontend |
+| `npm run db:migrate` | Apply pending database migrations |
 
 GitHub runs `typecheck`, `test` and `build` on every pull request into `dev` or `main` ([CI workflow](.github/workflows/ci.yml)). Run them locally before you open a PR.
 

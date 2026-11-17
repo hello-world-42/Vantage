@@ -57,6 +57,8 @@ export interface HazardsConfig {
   /** Injected in tests (NWS and USGS). */
   fetch?: typeof fetch;
   logError?: (message: string, error: unknown) => void;
+  /** Admin switch from the data_sources table; a provider that is off is left out of the card. */
+  isSourceEnabled?: (source: string) => boolean | Promise<boolean>;
 }
 
 /** NWS severe-weather alerts. US-only; needs NWS_USER_AGENT. */
@@ -114,6 +116,7 @@ export function createHazardsModule(config: HazardsConfig): ModuleDefinition {
       combineSources(sources, context, {
         notApplicableReason: "No hazard data source covers this location yet.",
         logError: config.logError,
+        isSourceEnabled: config.isSourceEnabled,
       }),
   };
 }

@@ -77,7 +77,7 @@ test("sky conditions: values for land, not_applicable for open ocean, absent gri
 test("sky conditions isn't registered until a grid file exists", () => {
   assert.equal(createSkyConditionsModule({ grids: { lightPollution: null, population: null } }), null);
   const ids = createModuleRegistry({ listCache: createMemoryCache(), staticDataDir: join(tmpdir(), "no-such-folder") }).map((m) => m.id);
-  assert.deepEqual(ids, ["weather", "hazards", "astronomy", "space"]);
+  assert.deepEqual(ids, ["weather", "airQuality", "hazards", "astronomy", "space", "ocean"]);
 });
 
 test("STATIC_DATA_DIR: relative paths are read from the repo root, like the .env", () => {

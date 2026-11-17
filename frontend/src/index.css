@@ -13,3 +13,24 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Wireframe palette (Figma screens 02, 03, 06): flat dark grays with a blue accent. */
+@theme {
+  --color-vt-page: #111111;
+  --color-vt-bar: #2a2a2a;
+  --color-vt-topbar: #191a1d; /* top bar + footer: darker than the wireframe grey */
+  --color-vt-topbar-deep: #121316;
+  --color-vt-field: #3a3a3a;
+  --color-vt-muted: #9a9a9a;
+  --color-vt-blue: #4f86f7; /* wordmark, accents, focus */
+  --color-vt-blue-light: #7ea3ff; /* text links on dark backgrounds */
+  --color-vt-action: #3d6fe6; /* filled buttons: darker than the wireframe blue so white text stays readable */
+  --color-vt-action-hover: #3560d0;
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-vt-blue-light);
+    outline-offset: 2px;
+  }
+}
