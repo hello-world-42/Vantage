@@ -10,6 +10,6 @@ export const TTL_SECONDS: Record<ModuleId, number> = {
   airQuality: 30 * MINUTE,
   ocean: 30 * MINUTE,
   space: 1 * HOUR, //          N2YO / Launch Library have tiny hourly quotas
-  astronomy: 6 * HOUR, //       sun/moon times barely change within a day
+  astronomy: 10 * MINUTE, //    computed locally; short so sun position and day/night stay current
   skyConditions: 24 * HOUR, //  light pollution / population are static grids
 };

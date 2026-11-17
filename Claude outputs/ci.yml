@@ -1,0 +1,44 @@
+# Runs on every pull request into dev or main, and on every push to them.
+# A PR can only be trusted to merge cleanly once this is green.
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+# A newer push to the same PR cancels the older run. Pushes to dev/main are never
+# cancelled, so every commit there gets checked.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Fails if package-lock.json is out of date: commit the lockfile with any dependency change.
+      - run: npm ci
+
+      - name: Typecheck (all workspaces, backend tests included)
+        run: npm run typecheck
+
+      # No .env in CI: tests use fakes and never call real APIs or the database.
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

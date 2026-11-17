@@ -16,6 +16,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   CLIENT_URL: z.url().default("http://localhost:5173"),
+  /** Proxies in front of the app (hosting load balancer). 0 locally, usually 1 when deployed. Rate limits use it to find the client IP. */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
 
   // Database and auth (required once those features land)
   DATABASE_URL: optional(z.string()),
@@ -35,6 +37,9 @@ const envSchema = z.object({
   ASTRONOMY_API_SECRET: optional(z.string()),
   /** NWS requires a User-Agent that identifies the app and a contact, e.g. "Vantage (team@example.com)" */
   NWS_USER_AGENT: optional(z.string()),
+
+  /** Folder with preprocessed grids (light pollution, population). Defaults to data/static at the repo root. */
+  STATIC_DATA_DIR: optional(z.string()),
 
   // Cache
   CACHE_DRIVER: z.enum(["memory", "redis"]).default("memory"),

@@ -1,0 +1,10 @@
+{
+  // Type-checks the tests along with the source (npm run typecheck). Not used for the build.
+  // rootDir is the repo root because some tests import frontend/src/api/client.ts to check the contract.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".."
+  },
+  "include": ["src", "tests"]
+}

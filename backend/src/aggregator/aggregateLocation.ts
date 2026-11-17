@@ -50,6 +50,7 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
       case "global":
         return `module:${module.id}`;
       case "us-only":
+      case "cell-and-country":
         return `module:${module.id}:${context.cell.key}:${context.countryCode ?? "unknown"}`;
       case "cell":
         return `module:${module.id}:${context.cell.key}`;
@@ -60,7 +61,7 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
   async function fetchModule(
     module: ModuleDefinition,
     base: Omit<LocationContext, "signal">,
-  ): Promise<ModuleResult> {
+  ): Promise<{ result: ModuleResult; ttlSeconds: number }> {
     const controller = new AbortController();
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
@@ -71,12 +72,20 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
     });
     try {
       const outcome = await Promise.race([module.fetch({ ...base, signal: controller.signal }), timeout]);
+      // A module may ask for a shorter cache time, e.g. when one of its sub-sources failed.
+      const ttlSeconds = Math.min(module.ttlSeconds, outcome.ttlSeconds ?? module.ttlSeconds);
       if (outcome.status === "ok") {
-        return { status: "ok", data: outcome.data, source: outcome.source, fetchedAt: now().toISOString() };
+        return {
+          result: { status: "ok", data: outcome.data, source: outcome.source, fetchedAt: now().toISOString() },
+          ttlSeconds,
+        };
       }
-      return outcome.source
-        ? { status: "not_applicable", reason: outcome.reason, source: outcome.source }
-        : { status: "not_applicable", reason: outcome.reason };
+      return {
+        result: outcome.source
+          ? { status: "not_applicable", reason: outcome.reason, source: outcome.source }
+          : { status: "not_applicable", reason: outcome.reason },
+        ttlSeconds,
+      };
     } finally {
       clearTimeout(timer);
     }
@@ -94,9 +103,9 @@ export function createAggregator(deps: AggregatorDeps): AggregateLocation {
 
     try {
       return await flight.run(key, async () => {
-        const result = await fetchModule(module, base);
-        // Only successful answers are cached; errors are retried on the next request.
-        await deps.cache.set(key, result, module.ttlSeconds);
+        const { result, ttlSeconds } = await fetchModule(module, base);
+        // ok and not_applicable answers are cached; a throw (error) is retried on the next request.
+        await deps.cache.set(key, result, ttlSeconds);
         return result;
       });
     } catch (error) {

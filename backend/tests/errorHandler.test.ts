@@ -73,3 +73,14 @@ test("malformed JSON sent to the real app gets a 400 JSON error", async () => {
     assert.deepEqual(await res.json(), { error: "Request body is not valid JSON." });
   });
 });
+
+test("the server log never includes the query string (it can hold one-time OAuth codes)", async () => {
+  const messages: string[] = [];
+  const app = express();
+  app.get("/api/auth/google/callback", (_req, _res, next) => next(new Error("token exchange failed")));
+  app.use(createErrorHandler({ logError: (message) => messages.push(message) }));
+  await withServer(app, async (base) => {
+    await fetch(`${base}/api/auth/google/callback?code=SECRET-CODE&state=abc`);
+  });
+  assert.deepEqual(messages, ["[error] GET /api/auth/google/callback"]);
+});

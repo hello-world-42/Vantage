@@ -54,7 +54,8 @@ export function createErrorHandler(options: ErrorHandlerOptions = {}): ErrorRequ
       return;
     }
 
-    logError(`[error] ${req.method} ${req.originalUrl}`, error);
+    // Path only: query strings can hold one-time secrets (e.g. Google's ?code= on the OAuth callback).
+    logError(`[error] ${req.method} ${req.originalUrl.split("?")[0]}`, error);
     res.status(500).json({ error: "Something went wrong." });
   };
 }
