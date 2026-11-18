@@ -36,3 +36,9 @@ export interface RandomLocation {
   lng: number;
   name?: string;
 }
+
+/** Body of a successful POST /api/auth/login (and of the Google redirect once the backend sends it). */
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}

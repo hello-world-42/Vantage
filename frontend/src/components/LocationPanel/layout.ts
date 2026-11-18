@@ -4,6 +4,8 @@
 
 /** Dashboard width on desktop (px). */
 export const PANEL_WIDTH = 420;
+/** Gap between the floating dashboard card and the edges of the map area on desktop (px). */
+export const PANEL_MARGIN = 16;
 /** Dashboard height on mobile, as a fraction of the viewport. */
 export const SHEET_HEIGHT_RATIO = 0.5;
 /** Matches Tailwind's `md` breakpoint: >= this is "desktop" (side panel), below is a bottom sheet. */

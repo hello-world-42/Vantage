@@ -3,6 +3,7 @@
 // `{ token, user }` body returned by POST /api/auth/login (or the Google callback).
 import { createContext, useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { isTokenExpired } from '../lib/jwt';
 import type { AuthUser } from '../types';
 
 const STORAGE_KEY = 'vantage.auth';
@@ -27,6 +28,10 @@ function loadSession(): Session | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Session>;
     if (typeof parsed.token === 'string' && parsed.user && typeof parsed.user === 'object') {
+      if (isTokenExpired(parsed.token)) {
+        saveSession(null); // an expired login would only cause a 401 on the first request
+        return null;
+      }
       return { token: parsed.token, user: parsed.user };
     }
   } catch {
