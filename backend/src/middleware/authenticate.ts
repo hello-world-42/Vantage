@@ -1,5 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
-import jwt, { type JwtPayload } from "jsonwebtoken";
+import {
+  bearerToken, isStateChanging, readCookie, requireCsrf,
+  SESSION_COOKIE, verifySessionToken,
+} from "../auth/sessionSecurity.js";
 
 import type { User } from "../db/schema.js";
 
@@ -20,52 +23,32 @@ function unauthorized(res: Response): void {
   res.status(401).json({ error: "Unauthorized" });
 }
 
-function isAuthenticatedPayload(
-  payload: string | JwtPayload,
-): payload is JwtPayload & AuthenticatedUser & { exp: number } {
-  return (
-    typeof payload !== "string" &&
-    Number.isInteger(payload.userId) &&
-    payload.userId > 0 &&
-    (payload.role === "user" || payload.role === "admin") &&
-    typeof payload.exp === "number"
-  );
-}
-
 export function authenticate(
   req: Request,
   res: Response,
   next: NextFunction,
 ): void {
-  const authorization = req.get("authorization");
-  const bearerMatch = authorization?.match(/^Bearer\s+(\S+)$/i);
-  if (!bearerMatch) {
+  const cookie = readCookie(req, SESSION_COOKIE);
+  const token = cookie !== undefined ? cookie : bearerToken(req);
+  if (!token) {
     unauthorized(res);
     return;
   }
 
-  const secret = process.env.JWT_SECRET?.trim();
-  if (!secret) {
-    next(new Error("JWT_SECRET is required to verify authentication tokens"));
-    return;
-  }
-
   try {
-    const payload = jwt.verify(bearerMatch[1], secret, {
-      algorithms: ["HS256"],
-    });
-
-    if (!isAuthenticatedPayload(payload)) {
+    const payload = verifySessionToken(token);
+    if (!payload) {
       unauthorized(res);
       return;
     }
 
+    if (cookie !== undefined && isStateChanging(req) && !requireCsrf(req, res, token)) return;
     req.user = {
       userId: payload.userId,
       role: payload.role,
     };
     next();
-  } catch {
-    unauthorized(res);
+  } catch (error) {
+    next(error);
   }
 }

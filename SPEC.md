@@ -2,6 +2,7 @@
 
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
+Last updated: 2026-11-15 by Aamir Mohammad (amohammad12, agent-assisted)
 Last updated locally: 2026-11-15 by Mohammed Hussain Shareef Shaik (agent-assisted; uncommitted)
 
 ---
@@ -114,7 +115,7 @@ Browser (React)
 - **Global-list sources** (Launch Library 2, GVP volcanoes) are cached under **one** key and filtered by distance in our code. Never cache them per cell.
 - **Admin can disable providers** through the `data_sources` table. The aggregator checks it and returns `disabled` for those modules.
 - **`app.ts` / `server.ts` split.** `app.ts` builds the Express app (testable without a port); `server.ts` loads env and calls `listen()`.
-- **Auth tokens.** Email/password login and Google OAuth both return a JWT (`Authorization: Bearer`). Google OAuth uses PKCE plus short-lived signed HttpOnly cookies for `state` and the code verifier only.
+- **Auth tokens (task #10 decision; #11 backend implemented).** Store the JWT in an HttpOnly cookie and serve the SPA and `/api` under one origin. Section 3.7 defines the contract and rollout. Google success sets the session cookie and redirects; cookie-mode password login and session/CSRF/logout endpoints are available. Legacy password login still returns JWT JSON without setting a session cookie, and middleware retains Bearer support. `AuthContext` still uses localStorage until Mario integrates the cookie contract. Google's PKCE state/verifier cookies remain separate from the auth cookie.
 
 ### 3.3 Environment
 
@@ -165,14 +166,58 @@ Connection: `backend/src/db/client.ts` lazy-creates a `pg` pool from `DATABASE_U
 | GET | `/api/location?lat=&lng=[&country=]` | — | ✅ Done (hazards module only: NWS alerts) |
 | GET | `/api/random` | — | ✅ KAN-24 implemented locally; offline land-biased selection, proxy HTTP 200 verified, commit/PR pending |
 | POST | `/api/auth/register`, `/api/auth/login` | — | ✅ Done (bcrypt + JWT) |
-| POST | `/api/auth/logout` | — | ❌ Not started |
-| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ✅ Done (PKCE; returns the same JWT shape as password login). ⚠️ The callback answers with JSON, so the browser app can't finish Google login yet. See Section 7 item 11 |
+| GET | `/api/auth/csrf` | — | ✅ Done (guest/session CSRF bootstrap) |
+| GET | `/api/auth/session` | Cookie | ✅ Done (authoritative user + CSRF token, no expiry extension) |
+| POST | `/api/auth/session` | Bearer or cookie + CSRF | ✅ Temporary migration exchange |
+| POST | `/api/auth/logout` | CSRF + Origin | ✅ Done (clears cookies, supports expired JWT) |
+| GET | `/api/auth/google`, `/api/auth/google/callback` | — | ✅ Done (state/PKCE; HttpOnly JWT cookie + redirect to CLIENT_URL) |
 | GET/PUT | `/api/profile` | User | ❌ Not started |
 | GET/POST | `/api/favorites` | User | ✅ Done |
 | DELETE | `/api/favorites/:favoriteId` | User | ✅ Done |
 | * | `/api/admin/...` | Admin | ❌ Not started (no UI) |
 
 ---
+
+### 3.7 Browser auth decision and handoff (task #10, agreed 2026-11-15)
+
+**Status:** #10 decision complete; #11 backend contract implemented on 2026-11-15. Mario's frontend integration and retirement of legacy authentication remain pending. Aamir owns backend auth; Mario owns the frontend integration. This section supersedes the earlier localStorage/Bearer handoff; historical completed-work entries describe their original releases. No routes, auth code or tests were changed for #10 itself.
+
+#### Storage, routing and security
+
+- **JWT storage:** a host-only `vantage_session` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/`, with no `Domain` attribute. `Secure=true` on production HTTPS; `Secure=false` only for local HTTP development. Cookie expiry must not exceed the JWT's remaining lifetime. Retain the existing configured JWT lifetime during migration; do not silently renew on refresh or introduce refresh tokens in this decision.
+- **Production:** one public HTTPS origin serves the SPA and forwards `/api` to Express, even if the services have different internal hosts. **Local:** use `http://localhost:5173` and Vite's existing `/api` proxy to port 3000, including OAuth initiation and the callback URL. Browser code uses relative `/api/...` URLs and `credentials: 'same-origin'`; no direct browser calls to port 3000. Configure Google to allow the public callback URL in each environment.
+- **CORS:** the agreed browser flow is same-origin and needs no cross-origin access. Keep any CORS allowance restricted to the exact configured frontend origin, with credentials enabled; never use a wildcard. CORS is not CSRF protection. Separate public frontend/API origins would require a new routing/security decision, rather than changing `SameSite` to `None` by default.
+- **XSS:** HttpOnly prevents JavaScript reading the JWT, but malicious scripts can still issue authenticated requests. Keep XSS defenses; never expose the final JWT in JSON, URLs, browser storage or frontend state. localStorage was rejected because injected JavaScript can extract the persistent token.
+- **CSRF:** require both an exact allowed public `Origin` and a valid `X-CSRF-Token` on browser `POST`/`PUT`/`PATCH`/`DELETE` requests, including login, registration, logout and favorite mutations. Reject missing/untrusted Origin or missing/invalid CSRF proof with `403 { error: "Invalid CSRF token or origin" }`. Use a signed double-submit token bound to the authenticated session (a separate random pre-login context for guests), not an unsigned cookie/header comparison. Bootstrap via `GET /api/auth/csrf` returning `{ csrfToken }`; the supporting host-only cookie uses `SameSite=Lax`, `Path=/` and the same Secure policy. Keep the returned token in memory, and rotate the CSRF context on login/logout. CSRF tokens are not JWTs. Ordinary GETs remain read-only; Google's callback is the protocol exception and retains its existing state validation and PKCE, not the SPA CSRF header requirement.
+
+Security references: [OWASP browser storage guidance](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html), [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [MDN cookie attributes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie).
+
+#### Contract for Mario (backend available; frontend wiring pending)
+
+`user` keeps the existing sanitized shape `{ id, username, email, role, createdAt }`. Auth/session and CSRF responses use `Cache-Control: no-store` and never enter shared caches.
+
+| Action | Target contract | Frontend behavior |
+|---|---|---|
+| Bootstrap CSRF | `GET /api/auth/csrf` → `200 { csrfToken }`, also for guests | Fetch before the first mutation; send `X-CSRF-Token` on mutations. |
+| Register | Existing `POST /api/auth/register` JSON input → `201 { user }`; no automatic login | Keep current behavior; send CSRF proof (and `X-Auth-Mode: cookie` for cookie clients), then use the login endpoint. |
+| Log in | Existing `POST /api/auth/login` `{ email, password }` with `X-Auth-Mode: cookie` → `200 { user, csrfToken }` plus auth cookie; invalid credentials remain `401` | Store user and rotated CSRF token in memory; load favorites. Replace `login(token, user)` with an async credential-based login action. |
+| Restore on refresh | `GET /api/auth/session` → `200 { user, csrfToken }`; absent/expired/invalid session → `401 { error: "Unauthorized" }`, clearing an expired/invalid auth cookie | Start in a loading state, then restore user before loading favorites. A network/5xx error is retryable, not proof of logout. This endpoint does not extend JWT expiry. |
+| Log out | `POST /api/auth/logout` with CSRF proof → `204`; clear auth/CSRF cookies using matching path/domain settings, including when the JWT has expired | On success clear user, CSRF token and favorites in memory. On network failure show retry; do not claim server logout succeeded. Obtain a fresh guest CSRF context before another mutation. |
+| Favorites | Existing paths, payloads, user ownership and roles remain unchanged; authenticate by cookie | Gate on restored user, not a token string. Send CSRF header on create/delete. A `401` clears local session/favorites state; a `403` is a CSRF/permission failure, not automatic logout. |
+
+After a CSRF failure, re-bootstrap CSRF and let the user retry; do not automatically replay arbitrary mutations. If the JWT has expired, CSRF bootstrap supplies guest proof so logout can still clear the cookies. Logout clears this browser's cookie; a copied stateless JWT remains valid until expiry without a future revocation mechanism.
+
+For #11, successful Google login now sets the auth cookie and rotates the CSRF context, then sends `303` to the configured `CLIENT_URL` only (no client-supplied redirect). Mario restores state through `GET /api/auth/session`; JWTs never enter redirect URLs or success JSON. OAuth state/verifier checks and PKCE remain in place. Failures retain the existing JSON statuses (`400` state/code, `401` Google verification, `409` email conflict); frontend error presentation is still pending.
+
+#### Migration without breaking password login or favorites
+
+1. **Backend compatibility first (implemented):** cookie/session/CSRF/logout contracts coexist with legacy `{ token, user }` login responses and Bearer authentication. A presented cookie takes precedence; an invalid cookie never falls back to Bearer. Cookie-authenticated mutations always require CSRF; requests authenticated solely by a Bearer header use the temporary legacy path. The frontend selects the cookie-only response with `X-Auth-Mode: cookie` on login (also selected automatically when an auth cookie is presented). Only cookie-free legacy login receives JSON JWT and sets no auth cookie. During this window only, existing cookie-free login/register clients may omit CSRF proof, with exact Origin validation still required; new clients use the full CSRF contract. Existing register and favorites response shapes stay stable.
+2. **Mario's coordinated release:** switch `AuthContext`, API helpers and favorite hooks together to the target contract. On startup try the cookie session first. If absent and `vantage.auth` contains a legacy JWT, use a temporary `POST /api/auth/session` exchange with that Bearer token plus guest CSRF/Origin proof. The server verifies the JWT, loads the authoritative user and sets the cookie with the **original remaining expiry**, returning `{ user, csrfToken }`. Delete localStorage only after a successful cookie-session check; an invalid/expired legacy token requires login, while transient failures preserve it for retry. Never copy cached user identity/role into trusted server state. An existing valid cookie wins over cached localStorage. Then remove the cached entry and stop sending Bearer headers. No favorites database migration is required.
+3. **Retire compatibility separately:** once both owners confirm password login, refresh, logout, OAuth and favorite operations work with cookies, remove the legacy JSON-token response, Bearer acceptance and exchange endpoint. Account for old tabs/cached clients before removal. During the compatibility window JWTs already in localStorage remain exposed to XSS. Require completion of this rollout before calling the cookie implementation complete; #10 itself records only the decision.
+
+**Setup and Mario handoff:** set local `CLIENT_URL=http://localhost:5173` and `GOOGLE_CALLBACK_URL=http://localhost:5173/api/auth/google/callback` in the root `.env`, and register that exact redirect URI in Google Cloud. Use the matching public HTTPS URLs and `NODE_ENV=production` when deployed; route `/api` on the frontend origin. Keep JWT/Google/DB secrets server-side. The real `.env` is not edited by #11. Mario must wire cookie-mode login/registration, CSRF bootstrap/header and rotation, startup session loading, the temporary localStorage exchange/cleanup, cookie-backed favorites and server logout. The legacy frontend still uses token-string gating and cannot display the Google cookie session yet. It must switch those pieces together.
+
+**Open coordination:** choose production hosting/reverse proxy (#56), register production Google redirect URIs (#57), confirm the configured success destination and decide how to display OAuth JSON errors. Mario must adopt the implemented `X-Auth-Mode: cookie` selector; both owners must agree the compatibility deployment/retirement window. JWT lifetime tuning, refresh tokens and server-side revocation remain separate work. Full test-suite and live Google/browser verification are deferred to the next step.
 
 ## 4. Current Project Structure (`dev` branch)
 
@@ -204,7 +249,7 @@ Vantage/
 │       ├── server.ts            ✅ listen(env.PORT)
 │       ├── config/env.ts        ✅ loads root .env, validates with zod, exports typed `env`
 │       ├── aggregator/          ✅ moduleRegistry.ts (hazards/NWS registered), aggregateLocation.ts
-│       ├── auth/                ✅ googleOAuth.ts (+ tests)
+│       ├── auth/                ✅ googleOAuth.ts (+ tests), sessionSecurity.ts (JWT cookie + CSRF helpers)
 │       ├── cache/               ✅ cache.ts, memoryCache.ts, ttlPolicy.ts · ⬜ redisCache.ts
 │       ├── lib/                 ✅ grid.ts, singleflight.ts · ⬜ geo.ts, http.ts, throttle.ts
 │       ├── middleware/          ✅ authenticate, requireRole (+ tests) · ⬜ errorHandler, rateLimit, validate
@@ -310,10 +355,10 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 
 ### Aamir Mohammad (amohammad12): profile API and data-source admin wiring
 - **Branch:** start a new `feature/...` from `dev` (`feature/database-setup` and `feature/auth` are merged)
-- **Goal:** profile routes next; then logout if the team wants a server endpoint; then wire `data_sources.is_enabled` into the aggregator with Lance.
+- **Goal:** profile routes next; then wire `data_sources.is_enabled` into the aggregator with Lance. Cookie logout is implemented in #11 (Section 3.7).
 - **Files:**
   - `backend/src/routes/profile.ts`
-  - Next: `backend/src/routes/auth.ts` (logout only, if added), `backend/src/routes/admin.ts`
+  - Next: `backend/src/routes/admin.ts`
 - **Do not edit** Lance's aggregator/cache/contract files without coordinating. The aggregator already accepts `isEnabled(id)`; wiring it to Neon is a joint step (see Section 7).
 
 ### Mario Sepriano: frontend dashboard
@@ -328,6 +373,22 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 
 ## 6. Completed
 
+### Task #11: backend OAuth cookie handoff and session contract implemented on 2026-11-15
+
+- **Owner:** Aamir Mohammad (amohammad12, agent-assisted).
+- **Branch:** `feature/oauth-cookie-session`.
+- **Files:** `backend/src/routes/auth.ts`, `backend/src/auth/sessionSecurity.ts`, `backend/src/middleware/authenticate.ts`, targeted auth/session regression tests and existing login/register fixtures, `.env.example`, this spec and `docs/superpowers/plans/2026-11-15-oauth-cookie-session.md`.
+- **Behavior:** Google success keeps state/PKCE validation, sets the HttpOnly/SameSite=Lax JWT cookie (Secure in production), rotates CSRF context and redirects to configured `CLIENT_URL` without a URL/JSON JWT. Session lookup loads the current DB user without extending token expiry. CSRF bootstrap/logout and a temporary Bearer-to-cookie session exchange support Mario's contract. Cookie-authenticated writes require exact Origin and session-bound CSRF; cookie-free legacy password login and Bearer favorites remain available.
+- **Checks:** 53 targeted tests passed across auth registration/login/Google/session, authenticate middleware and favorites; backend TypeScript check and `git diff --check` passed. Separate read-only security review found no concrete code issue; its template URL concern was corrected. **Deferred at user request:** full project test run, live Google consent/redirect and browser verification.
+- **Handoff:** frontend files are unchanged. Mario must wire the Section 3.7 session/CSRF/migration contract; update the real local `.env` and Google authorized redirect URI to use port 5173. Compatibility retirement and production setup remain open.
+
+### Task #10: browser JWT storage decision completed on 2026-11-15
+
+- **Owner:** Aamir Mohammad (amohammad12, agent-assisted); handoff to Mario Sepriano.
+- **Branch:** `feature/auth-storage-decision`.
+- **Files:** `SPEC.md` only.
+- **Decision:** HttpOnly JWT cookie, one public origin in production, Vite `/api` proxy locally. Section 3.7 records cookie settings, CSRF defenses, login/logout/session/favorites contracts and the staged localStorage/Bearer migration.
+- **Scope:** decision and handoff only. Auth implementation, task #11 callback, migration implementation and testing remain separate steps.
 ### KAN-24 random land-biased route verified locally on 2026-11-15
 
 - **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
@@ -494,7 +555,7 @@ Claim an item by moving it to Section 5 with your files.
 - **Data modules:** air quality, astronomy (`suncalc`), space (N2YO, Launch Library 2, NOAA SWPC aurora), hazards (USGS, NWS, FIRMS, GVP), ocean (Open-Meteo Marine), static data (VIIRS, SEDAC)
 - **Offline preprocessing:** `scripts/preprocess-static/` for VIIRS + SEDAC → `data/static/`
 - **Middleware still empty:** `errorHandler.ts`, `validate.ts`, `rateLimit.ts` (`authenticate` / `requireRole` are done)
-- **Auth leftovers:** `POST /api/auth/logout`, `GET/PUT /api/profile`
+- **Auth leftovers:** `GET/PUT /api/profile`, Mario's cookie-session integration and compatibility retirement (Section 3.7)
 - **Optional cache pieces:** `cache/redisCache.ts` (Upstash), `lib/throttle.ts` (per-provider throttle)
 - **Frontend:** module components replacing the raw-JSON placeholder (Weather, AirQuality, Astronomy, Hazards, Ocean, SkyConditions, Space), profile page (the avatar menu has no Profile link until it exists), Open-Meteo attribution on the globe page once weather data shows, favorites star in search results (there is currently no way to *add* a favorite from the UI)
 - **Admin API** (no UI): manage users; enable/disable data sources
@@ -510,6 +571,10 @@ Claim an item by moving it to Section 5 with your files.
 - 2026-11-15 · Mario Sepriano (hello-world-42) · agent-assisted · Dashboard restyle to the wireframes (floating rounded card, ◀ collapsed tab, split zoom pill), landing globe redrawn with d3-geo + Natural Earth land, darker top bar with glow line, original logo restored. Added frontend deps d3-geo, topojson-client, world-atlas. Updated Sections 2.5, 4, 5, 6.
 
 - 2026-11-15 · Mario Sepriano (hello-world-42) · agent-assisted · Added the login/register modal (Figma screen 05; wired to `/api/auth/register` + `/login`), landing page with the attribution footer (screen 01), top bar with avatar menu, and routes (`/`, `/globe`, `/auth/callback`). Google return page is ready but needs the backend redirect in Section 7 item 11; "Forgot password?" left out (item 12). Updated Sections 3.6, 4, 5, 6, 7 (items 9, 11, 12), 8.
+
+- 2026-11-15 · Aamir Mohammad (amohammad12) · agent-assisted · Implemented #11 backend cookie OAuth redirect, current-user session lookup, signed session-bound CSRF, cookie-mode password login/logout and temporary legacy-token exchange. Kept Bearer compatibility, updated same-origin env template and Mario's handoff. 53 targeted tests and backend typecheck passed; full suite/live verification deferred at user request.
+
+- 2026-11-15 · Aamir Mohammad (amohammad12) · agent-assisted · Completed task #10 decision in SPEC.md only: HttpOnly JWT cookie, same-origin production and local Vite proxy, Secure/SameSite/CSRF policy, Mario's login/logout/session/favorites contract, and staged migration from localStorage/Bearer. Auth code, #11 callback and testing deferred; deployment and compatibility coordination listed in Section 3.7.
 
 - 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented KAN-24 offline land-biased sampling and `/api/random` using public-domain Natural Earth polygons. All 14 new tests and the combined 95-test Person 4 suite passed, plus typechecks/backend build/compiled-asset smoke test. Frontend proxy returned HTTP 200. Updated SPEC after verification; no environment-file/API-key access, no commit/push.
 
