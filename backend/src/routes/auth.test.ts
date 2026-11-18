@@ -49,7 +49,7 @@ test("POST /api/auth/register creates a user with a bcrypt password hash", async
     };
   });
 
-  const response = await request(app).post("/api/auth/register").send({
+  const response = await request(app).post("/api/auth/register").set("Origin", "http://localhost:5173").send({
     username: "  Aamir  ",
     email: "  AAMIR@Example.com  ",
     password: "correct horse battery staple",
@@ -93,7 +93,7 @@ test("POST /api/auth/register rejects missing or invalid required inputs", async
 
   for (const body of invalidBodies) {
     await t.test(JSON.stringify(body), async () => {
-      const response = await request(app).post("/api/auth/register").send(body);
+      const response = await request(app).post("/api/auth/register").set("Origin", "http://localhost:5173").send(body);
       assert.equal(response.status, 400);
       assert.equal(response.body.error, "Invalid registration data");
     });
@@ -110,7 +110,7 @@ test("POST /api/auth/register returns 409 for a duplicate email", async () => {
     });
   });
 
-  const response = await request(app).post("/api/auth/register").send({
+  const response = await request(app).post("/api/auth/register").set("Origin", "http://localhost:5173").send({
     username: "Existing User",
     email: "existing@example.com",
     password: "password123",
@@ -135,7 +135,7 @@ test("POST /api/auth/register ignores an attempted admin role", async () => {
     };
   });
 
-  const response = await request(app).post("/api/auth/register").send({
+  const response = await request(app).post("/api/auth/register").set("Origin", "http://localhost:5173").send({
     username: "Not Admin",
     email: "not-admin@example.com",
     password: "password123",
