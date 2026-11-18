@@ -8,6 +8,8 @@ import { createAggregator, type AggregateLocation } from "./aggregator/aggregate
 import { createLocationRouter } from "./routes/location.js";
 import { authRouter } from "./routes/auth.js";
 import { favoritesRouter } from "./routes/favorites.js";
+import { createGeocodeRouter } from "./routes/geocode.js";
+import { createRandomRouter } from "./routes/random.js";
 
 export interface AppOptions {
   /** Inject a fake aggregator in tests; production builds the real one from env. */
@@ -39,7 +41,9 @@ export function createApp(options: AppOptions = {}) {
   app.use("/api", createLocationRouter(aggregateLocation));
   app.use("/api/auth", authRouter);
   app.use("/api/favorites", favoritesRouter);
-  // Other routers (geocode, profile, random, ...) get mounted here as they're built.
+  app.use("/api/geocode", createGeocodeRouter({ getAccessToken: () => env.MAPBOX_TOKEN }));
+  app.use("/api/random", createRandomRouter());
+  // Other routers (profile, ...) get mounted here as they're built.
 
   app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });

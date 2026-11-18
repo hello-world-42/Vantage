@@ -3,6 +3,7 @@
 > **What this file is for.** This is the single source of truth for the Vantage project. Every teammate, and every coding agent working for a teammate, reads this file **before** making changes and updates it **after**. It says what we're building, how the code is organized, what's done, what's in progress, and **who owns which files right now**, so two people never edit the same file at the same time.
 
 Last updated: 2026-11-15 by Aamir Mohammad (amohammad12, agent-assisted)
+Last updated locally: 2026-11-15 by Mohammed Hussain Shareef Shaik (agent-assisted; uncommitted)
 
 ---
 
@@ -161,9 +162,9 @@ Connection: `backend/src/db/client.ts` lazy-creates a `pg` pool from `DATABASE_U
 | Method | Path | Auth | Status |
 |---|---|---|---|
 | GET | `/api/health` | — | ✅ Done |
-| GET | `/api/geocode?q=` | — | ❌ Route missing (client exists) |
+| GET | `/api/geocode?q=` | — | ✅ Implemented locally for KAN-21; mocked tests passed, PR/live check pending |
 | GET | `/api/location?lat=&lng=[&country=]` | — | ✅ Done (hazards module only: NWS alerts) |
-| GET | `/api/random` | — | ❌ Not started (frontend expects `{ lat, lng, name? }`, see Section 7 item 8) |
+| GET | `/api/random` | — | ✅ KAN-24 implemented locally; offline land-biased selection, proxy HTTP 200 verified, commit/PR pending |
 | POST | `/api/auth/register`, `/api/auth/login` | — | ✅ Done (bcrypt + JWT) |
 | GET | `/api/auth/csrf` | — | ✅ Done (guest/session CSRF bootstrap) |
 | GET | `/api/auth/session` | Cookie | ✅ Done (authoritative user + CSRF token, no expiry extension) |
@@ -252,14 +253,14 @@ Vantage/
 │       ├── cache/               ✅ cache.ts, memoryCache.ts, ttlPolicy.ts · ⬜ redisCache.ts
 │       ├── lib/                 ✅ grid.ts, singleflight.ts · ⬜ geo.ts, http.ts, throttle.ts
 │       ├── middleware/          ✅ authenticate, requireRole (+ tests) · ⬜ errorHandler, rateLimit, validate
-│       ├── routes/              ✅ location.ts, auth.ts, favorites.ts (+ tests) · ⬜ admin, geocode, profile, random
+│       ├── routes/              ✅ location.ts, auth.ts, favorites.ts (+ tests), geocode.ts + random.ts (local) · ⬜ admin, profile
 │       ├── db/                  ✅ client.ts, schema.ts, migrations/001_initial_schema.sql, 002_seed_data_sources.sql, 003_google_oauth.sql (+ tests)
 │       └── modules/
-│           ├── geo/             ✅ mapboxGeocoding.client.ts · ⬜ geo.service.ts, randomLocation.service.ts
-│           ├── weather/         ⬜ openMeteo.client.ts, weather.service.ts
+│           ├── geo/             ✅ forward/reverse clients, geo.service.ts, randomLocation.service.ts, landMask.ts + offline land data (local)
+│           ├── weather/         ✅ openMeteo.client.ts, weather.service.ts (KAN-23 local, registry wiring pending)
 │           ├── airQuality/      ⬜ airQuality.service.ts, openAq.client.ts, openMeteoAirQuality.client.ts
 │           ├── astronomy/       ⬜ astronomy.service.ts, astronomyApi.client.ts, suncalc.service.ts
-│           ├── hazards/         ✅ nwsAlerts.client.ts (registered as the hazards module) · ⬜ hazards.service.ts, usgsQuakes, nasaFirms, gvpVolcano clients
+│           ├── hazards/         ✅ nwsAlerts.client.ts (registered), usgsQuakes.client.ts + hazards.service.ts (KAN-32 local, USGS wiring pending) · ⬜ nasaFirms, gvpVolcano clients
 │           ├── ocean/           ⬜ ocean.service.ts, openMeteoMarine.client.ts
 │           ├── space/           ⬜ space.service.ts, n2yo, launchLibrary, noaaSwpc clients
 │           └── staticData/      ⬜ staticData.service.ts
@@ -355,16 +356,6 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
   - Next: `backend/src/routes/admin.ts`
 - **Do not edit** Lance's aggregator/cache/contract files without coordinating. The aggregator already accepts `isEnabled(id)`; wiring it to Neon is a joint step (see Section 7).
 
-### Mohammed Hussain Shareef Shaik: geocoding and weather *(from sprint plan, confirm)*
-- **Branch:** `person4-geocode-weather` (or a new `feature/...` from `dev`)
-- **Goal:** make search work end to end, then the weather module.
-- **Files:**
-  - `backend/src/modules/geo/mapboxGeocoding.client.ts` (fix return shape, see Section 7)
-  - `backend/src/modules/geo/geo.service.ts`
-  - `backend/src/routes/geocode.ts`
-  - `backend/src/modules/weather/openMeteo.client.ts`, `backend/src/modules/weather/weather.service.ts`
-  - Next: `backend/src/modules/geo/randomLocation.service.ts`, `backend/src/routes/random.ts`, hazards module files
-
 ### Mario Sepriano: frontend dashboard
 - **Branch:** `feature/dashboard` (started 2026-11-14)
 - **Goal:** the dashboard contents are done (see Section 6). Next: the module-specific components, then the auth modal and landing page.
@@ -393,6 +384,68 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 - **Files:** `SPEC.md` only.
 - **Decision:** HttpOnly JWT cookie, one public origin in production, Vite `/api` proxy locally. Section 3.7 records cookie settings, CSRF defenses, login/logout/session/favorites contracts and the staged localStorage/Bearer migration.
 - **Scope:** decision and handoff only. Auth implementation, task #11 callback, migration implementation and testing remain separate steps.
+### KAN-24 random land-biased route verified locally on 2026-11-15
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Branch:** `feature/person4-data-modules`. All Person 4 work remains uncommitted; no push/PR/merge performed.
+- **Files:** `backend/src/modules/geo/randomLocation.service.ts`, `backend/src/modules/geo/landMask.ts`, `backend/src/modules/geo/data/land.json`, `backend/src/modules/geo/data/README.md`, `backend/src/routes/random.ts`, `backend/src/app.ts` (random mount only), `backend/tests/randomLocation.service.test.ts`, `backend/tests/random.route.test.ts`.
+- **Selection:** offline rejection sampling with uniform longitude and latitude sampled via inverse-sine for equal spherical area. Candidates must fall inside the Natural Earth land mask; holes/coast boundaries are excluded by the containment routine. Defaults to at most 128 attempts and throws on exhaustion, never returns a known ocean point as fallback. Injectable random source/attempt cap allow deterministic testing. No geocoding, API keys or network calls at runtime.
+- **Data:** public-domain Natural Earth v5.1.2 1:110m land, 127 polygons/5,143 positions, properties removed and coordinates unchanged. Provenance, upstream SHA-256, license and limitations are recorded in the adjacent data README. This is a coarse land bias: small islands, inland waters and detailed coastlines may differ from the visible Mapbox map; it is not precise land/water verification. No runtime dependency or API account was added.
+- **Route:** public `GET /api/random` returns `{ lat, lng }`, matching the existing frontend's optional-name contract. `Cache-Control: no-store` prevents cached repeats; selection failures or invalid injected output produce safe HTTP 503. Mounted in `app.ts`; frontend/aggregator code was not changed for this ticket.
+- **Checks:** all 14 new tests passed, including holes/boundaries, all major continents/open oceans, deterministic rejection and 1,000 selections, route errors/no-store and existing frontend API-consumer compatibility. Combined Person 4 regression run passed all 95 tests. Workspace typechecks, backend build and separate new-test typecheck passed. A compiled-JS smoke test generated five land-mask points, proving the JSON asset was included in build output. The running frontend proxy returned HTTP 200 and valid coordinates from `/api/random`.
+- **Manual UI step:** user can click Random location inside the dashboard to confirm camera/marker movement. Proxy/API consumer were verified; no automated browser click was performed. This route itself is wired and does not need an aggregator entry. Selected points still use `/api/location` for data, whose new provider/country integrations remain with the teammate.
+- **Reproduce:** `node --import tsx --test backend/tests/randomLocation.service.test.ts backend/tests/random.route.test.ts` from the repo root.
+- **Security/scope:** no environment files or real API keys accessed. Public map data was downloaded at implementation time; runtime endpoint testing used only the keyless offline route. Existing work was backed up/preserved. Core aggregator/cache/registry files remain untouched.
+
+### KAN-32 standalone USGS earthquake service verified locally on 2026-11-15
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Branch:** `feature/person4-data-modules`. Uncommitted; no push, PR, production registration or frontend wiring performed.
+- **Files:** `backend/src/modules/hazards/usgsQuakes.client.ts`, `backend/src/modules/hazards/hazards.service.ts`, `shared/src/modules/earthquakes.ts`, `shared/package.json` (earthquake type export), `backend/tests/earthquakes.client.test.ts`, `backend/tests/earthquakes.service.test.ts`, `backend/tests/fixtures/earthquakes.ts`.
+- **Client:** `fetchUsgsQuakes(lat, lng, options?)` makes a public keyless GeoJSON catalog query. Bounded default policy: M2.5+, 500 km radius, last seven days, newest first, at most 100 events. Returns query metadata and validated features; HTTP 204 and an empty feature collection both mean no matching events. Invalid inputs/data/URLs, HTTP failures, cancellation and five-second request/body timeouts produce safe typed `EarthquakeClientError`s. No retries or cache inside the client.
+- **Service:** `fetchEarthquakes(lat, lng, options?)` returns `{ status: 'ok', source: 'USGS', data: EarthquakeData }` and throws on failure. Imports for consumers: `@vantage/shared/modules/earthquakes`. Records include id, nullable magnitude/place, UTC event/update timestamps, lat/lng, depthKm, great-circle distanceKm (0.1 km precision) and USGS URL. Negative depths, unknown values and zero values are retained correctly. Response contains filters and `possiblyTruncated` when the returned count reaches the cap, plus USGS source attribution. These are recent catalog records, not predictions or push alerts.
+- **Integration handoff:** registry/aggregator owner composes USGS output with NWS in the hazards payload. Earthquakes apply worldwide even when country is unknown or non-US; do not let the current NWS-only `us-only` early return block USGS. Keep subprovider failures isolated and retain country-sensitive caching for the NWS portion. Use cell-center coordinates, the existing hazards TTL (300 seconds), and pass the context `signal` to the service. Existing aggregator/registry/TTL/shared envelope/frontend code was not changed for this ticket.
+- **Checks:** all 17 new tests passed, along with selected weather/NWS regressions (45 targeted tests in that run); workspace typechecks, backend build and separate earthquake-test typecheck passed. Live keyless query near San Francisco (37.8, -122.4) returned `ok`, five matching records and `possiblyTruncated: false`; latest event in that response was magnitude 2.89 near Silver Springs, Nevada. Live counts change with time.
+- **Reproduce:** `node --import tsx --test backend/tests/earthquakes.client.test.ts backend/tests/earthquakes.service.test.ts` from the repository root.
+- **Scope/security:** no environment files or API keys accessed. Live check imported only the keyless earthquake service. No running app/config imports or frontend earthquake test; registry composition, frontend display and live app verification remain with the integration/frontend owners. KAN-24 not started.
+- **Provider references:** https://earthquake.usgs.gov/fdsnws/event/1/ and https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php . Radius-filtered catalog is used here instead of downloading a global feed for every grid cell.
+
+### KAN-23 standalone weather service verified locally on 2026-11-15
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Branch:** `feature/person4-data-modules`. Uncommitted; no push, PR, production registration or frontend wiring performed.
+- **Files:** `backend/src/modules/weather/openMeteo.client.ts`, `backend/src/modules/weather/weather.service.ts`, `shared/src/modules/weather.ts`, `shared/package.json` (weather type export only), `backend/tests/weather.client.test.ts`, `backend/tests/weather.service.test.ts`, `backend/tests/fixtures/weather.ts`.
+- **Client:** `fetchOpenMeteoWeather(lat, lng, options?)` uses the public keyless forecast endpoint. It requests current weather and one UTC day's maximum UV, explicit Celsius/km/h/mm units and Unix timestamps; validates coordinates, data, ranges, units and daily-array lengths; supports caller cancellation plus a five-second request/body timeout. Missing individual measurements remain null; entirely missing current conditions and malformed responses throw typed `WeatherClientError`s. No retries or cache are added in the client.
+- **Provider contract:** `fetchWeather(lat, lng, options?)` returns `{ status: 'ok', source: 'Open-Meteo', data: WeatherData }` and throws on failure. Import the shared payload type from `@vantage/shared/modules/weather`. Payload contains UTC `validAt`, `intervalSeconds`, temperature/feels-like/humidity/wind/precipitation/WMO code/day-night, explicit units, and `dailyUvMax: { dateUtc, index }`. UV is a daily forecast maximum, not instantaneous UV. Weather values are model output, not station observations.
+- **Attribution handoff:** frontend must display the returned source link and accessible CC BY 4.0 license link; the payload also describes field/time normalization. Source: https://github.com/open-meteo/open-meteo#data-license . No frontend files were changed for this ticket.
+- **Registry handoff:** integration owner adds `weather` with `scope: 'cell'`, `ttlSeconds: TTL_SECONDS.weather` (already 600), and `fetch: ({ cell, signal }) => fetchWeather(cell.lat, cell.lng, { signal })`. No API key/config entry is required. Existing aggregator supplies cache, disabled/error envelopes and fetchedAt. Registry, aggregator and TTL files were left untouched; weather will not appear in the running frontend until registered.
+- **Checks:** all 16 new weather tests passed; the selected earlier client/service regressions also passed (56 targeted tests in that run). Workspace typechecks, backend build and separate weather-test typecheck passed. Final weather checks were rerun after adding attribution metadata. A live Atlanta request succeeded, returning 4.3 °C, humidity 72%, wind 7.9 km/h and UTC daily maximum UV 4.3 during the check; these are test-time readings, not fixed expected values.
+- **Security/scope:** no environment files or API keys accessed; live check imported only the keyless weather service. No real Mapbox/NWS/auth requests, running app/config imports, frontend build or browser weather check performed. KAN-32/KAN-24 not started.
+- **Reproduce:** `node --import tsx --test backend/tests/weather.client.test.ts backend/tests/weather.service.test.ts` from the repository root.
+
+### KAN-22 standalone country resolver verified locally on 2026-11-15
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Current working branch:** `feature/person4-data-modules`. All work remains uncommitted; PR and live integration are pending.
+- **Files:** `backend/src/modules/geo/mapboxReverseGeocoding.client.ts`, `backend/src/modules/geo/geo.service.ts`, `backend/tests/reverseGeocoding.client.test.ts`, `backend/tests/geo.service.test.ts`.
+- **Client:** `reverseGeocode(lat, lng, accessToken, options?)` requests the Mapbox v6 country layer with explicit latitude/longitude and returns an uppercase two-letter country code or `null` when unavailable. Coordinates, payloads and codes are validated; missing credentials, HTTP/network failures and five-second request/body timeouts produce sanitized `GeocodingError`s.
+- **Integration handoff:** `createCountryResolver(accessToken, options?)` returns the existing aggregator's `(lat, lng) => Promise<string | null>` callback. The integration owner must provide the configured token and pass this callback as `resolveCountry` in `app.ts`. Aggregator/cache/registry code was not modified. No endpoint or frontend code was added for this ticket.
+- **Checks:** 16 new tests passed, including mocked existing-aggregator compatibility, country override bypass and failure isolation. Prior forward-geocoding/NWS tests also passed (48 total); workspace typechecks, backend build and separate new-test typecheck passed. No environment files, real API keys, live Mapbox requests or real browser country lookup were accessed/performed.
+- **Reproduce:** `node --import tsx --test backend/tests/reverseGeocoding.client.test.ts backend/tests/geo.service.test.ts` from the repo root.
+- **Remaining:** teammate production wiring and user live verification. Until wired, the dashboard can still show "Country unknown". Country results follow the Mapbox response, not a bounding-box guess; unresolved results remain `null`.
+
+### KAN-21 forward geocoding implemented locally on 2026-11-15
+
+- **Owner:** Mohammed Hussain Shareef Shaik (GitHub username not supplied; agent-assisted).
+- **Branch:** `feature/kan21-forward-geocoding`. Not committed, pushed, or merged; live user verification and PR remain.
+- **User follow-up:** the user manually verified Atlanta search/selection in the frontend (marker and dashboard with correct coordinates). Work is now being collected uncommitted on `feature/person4-data-modules`; commit/PR remain.
+- **Files:** `backend/src/modules/geo/mapboxGeocoding.client.ts`, `backend/src/routes/geocode.ts`, `backend/src/app.ts` (geocode route wiring only), `backend/tests/geocoding.client.test.ts`, `backend/tests/geocode.route.test.ts`.
+- **Contract:** `GET /api/geocode?q=...` returns `{ results: GeocodeResult[] }`. The client directly returns `{ id, name, context?, lat, lng }`; Mapbox's `[longitude, latitude]` tuple is validated and mapped without rounding. Preferred/short names and optional place context are separated, with full-address/ID label fallbacks.
+- **Validation and errors:** uses the existing shared `geocodeQuerySchema` (trimmed query, 1–200 characters); invalid queries return 400, unavailable configuration 503, upstream failures 502, and timeouts 504. Malformed JSON/coordinates fail rather than being reported as no matches. Native five-second fetch timeout covers body reading; `lib/http.ts` is still empty and was not changed.
+- **Configuration:** client takes its token argument explicitly; the router receives an injected configuration callback. Production wiring supplies the already-validated config value when a request runs. No environment files or real API keys were accessed during implementation/testing.
+- **Checks:** 20 new geocoding tests plus the existing 12 NWS tests passed (32 total); workspace typechecks, backend build, and separate geocoding-test typecheck passed. Tests cover the real route/client and frontend API consumer using mocked provider data and dummy credentials. No live Mapbox/browser test or Vite production build was run, to avoid accessing configured API keys/environment files.
+- **Reproduce:** `node --import tsx --test backend/tests/geocoding.client.test.ts backend/tests/geocode.route.test.ts` from the repository root. Real-key search must be checked by the user before calling live frontend verification complete.
+- **Scope:** no aggregator, shared contract/schema, frontend, weather, or reverse-geocoding changes. Existing unrelated local repairs were preserved. Dependency installation used `npm ci --ignore-scripts --no-audit --no-fund` without changing manifests or lockfile.
 
 ### Database, authentication, Google OAuth, and Favorites API completed on 2026-10-29
 
@@ -450,15 +503,15 @@ Auth and favorites need `DATABASE_URL` and `JWT_SECRET`. Google login also needs
 
 **Open:**
 
-1. **Geocode shape mismatch.** `mapboxGeocoding.client.ts` returns `{ id, name, latitude, longitude }`, but the frontend expects the shared `GeocodeResult` `{ id, name, context?, lat, lng }`. The client should return `GeocodeResult` from `@vantage/shared`. *(Mohammed)*
-2. **`/api/geocode` route doesn't exist**, so search can't return results yet. *(Mohammed)*
-3. **No request timeout** in the geocoding client yet. Switch to `lib/http.ts` once it exists. *(Mohammed, after Lance's `http.ts`)*
+1. **Geocode shape mismatch resolved locally under KAN-21:** client now returns shared `GeocodeResult`; PR pending. *(Mohammed)*
+2. **Forward route implemented locally under KAN-21:** mocked route/client/frontend-consumer checks passed; live user search check and PR pending. *(Mohammed)*
+3. **Geocoding timeout added locally under KAN-21:** five-second native fetch timeout, including body reading. Adopt `lib/http.ts` when implemented; it is currently empty. *(Mohammed)*
 4. **Vite bundle > 500 kB** (Mapbox). Expected; not a problem for now.
-5. **No reverse geocoding yet, so the backend doesn't know a point's country.** NWS (US-only) needs it. Until then, `/api/location` accepts `?country=US`, and without it the hazards module returns `not_applicable`. Fix: add `reverseGeocode(lat, lng)` → ISO country code in `backend/src/modules/geo/`, then pass it as `resolveCountry` to `createAggregator` in `app.ts`. *(Mohammed for the client; Lance wires it in)*
+5. **Country resolver implemented locally under KAN-22; production wiring pending.** `reverseGeocode` and `createCountryResolver` are tested with mock responses and the existing aggregator. The integration owner must pass the resolver into `createAggregator` in `app.ts`; until then the backend cannot infer country automatically and `/api/location?country=US` remains the manual override. No live lookup was run because real-key/environment access was prohibited. *(Mohammed completed standalone client/service; Lance wires it in)*
 6. **`data_sources` check isn't wired yet.** The table is seeded, but the aggregator still defaults to "all enabled". It already accepts `isEnabled(id)`; once wired it should read `data_sources.is_enabled`. *(Aamir + Lance)*
 7. **`CACHE_DRIVER=redis` isn't implemented**; the app always uses the memory cache for now.
-8. **Random endpoint contract.** The frontend `RandomButton` calls `GET /api/random` and expects `{ lat: number, lng: number, name?: string }` (land-biased). Until the route exists the button shows "unavailable". Match this shape, or tell Mario what it will be. *(Mohammed)*
-9. **JWT cookie backend implemented in #11; frontend migration pending.** Section 3.7 specifies the cookie/CSRF/session contract and compatibility path. `AuthContext` and favorites still use localStorage/Bearer until Mario's coordinated update. Google success now sets a cookie and redirects to `CLIENT_URL`; error UI, rollout retirement and full/live verification remain pending. *(Aamir + Mario)*
+8. **Random endpoint implemented locally under KAN-24.** Response `{ lat, lng }` matches the frontend's optional-name contract. Offline mask selection, route and existing API consumer tested; frontend proxy returned HTTP 200. User browser interaction and commit/PR remain. See Section 6 for coarse-mask limitations. *(Mohammed)*
+9. **Where the JWT lives in the browser.** `AuthContext` keeps it in `localStorage` so Saved Locations survives reloads. Revisit when the login modal is built (localStorage is readable by any XSS; the alternative is memory-only or an httpOnly cookie). Also undecided: `GET /api/auth/google/callback` returns JSON, so the SPA needs a way to receive the token after the Google redirect. *(Aamir + Mario)*
 10. **`/api/location` returns every module in one response**, so the dashboard waits on the slowest module and shows all cards at once. There is no per-module endpoint for progressive loading. Decide whether that's acceptable. *(Lance)*
 
 ---
@@ -486,6 +539,15 @@ Claim an item by moving it to Section 5 with your files.
 - 2026-11-15 · Aamir Mohammad (amohammad12) · agent-assisted · Implemented #11 backend cookie OAuth redirect, current-user session lookup, signed session-bound CSRF, cookie-mode password login/logout and temporary legacy-token exchange. Kept Bearer compatibility, updated same-origin env template and Mario's handoff. 53 targeted tests and backend typecheck passed; full suite/live verification deferred at user request.
 
 - 2026-11-15 · Aamir Mohammad (amohammad12) · agent-assisted · Completed task #10 decision in SPEC.md only: HttpOnly JWT cookie, same-origin production and local Vite proxy, Secure/SameSite/CSRF policy, Mario's login/logout/session/favorites contract, and staged migration from localStorage/Bearer. Auth code, #11 callback and testing deferred; deployment and compatibility coordination listed in Section 3.7.
+- 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented KAN-24 offline land-biased sampling and `/api/random` using public-domain Natural Earth polygons. All 14 new tests and the combined 95-test Person 4 suite passed, plus typechecks/backend build/compiled-asset smoke test. Frontend proxy returned HTTP 200. Updated SPEC after verification; no environment-file/API-key access, no commit/push.
+
+- 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented standalone KAN-32 USGS radius client/service/shared types; 17 new tests plus selected weather/NWS regressions, typechecks and backend build passed. Keyless live query returned five events. Updated SPEC after verification; worldwide USGS/NWS composition remains with teammate. No environment-file/API-key access; uncommitted.
+
+- 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented standalone KAN-23 Open-Meteo client/service/shared weather type; 16 new tests, selected regression tests, workspace typechecks, backend build and test typecheck passed; keyless Atlanta request succeeded. Updated SPEC after verification. Teammate registry/frontend wiring remains; all work uncommitted, no environment-file/API-key access.
+
+- 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented standalone KAN-22 reverse country client/resolver with 16 new tests; 48 combined tests, workspace typechecks, backend build and new-test typecheck passed. Updated SPEC after verification. Production wiring remains with teammate; no environment files or real API keys accessed. Uncommitted on `feature/person4-data-modules`.
+
+- 2026-11-15 · Mohammed Hussain Shareef Shaik (GitHub username not supplied) · agent-assisted · Implemented KAN-21 forward geocoding route and shared-result normalization on `feature/kan21-forward-geocoding`; added 20 tests, validated alongside 12 NWS tests, workspace typechecks and backend build. Mocked responses/dummy credentials only; live check and PR pending. No environment files or real API keys accessed.
 
 - 2026-11-14 · Mario Sepriano (hello-world-42) · agent-assisted · Built the dashboard panel (default state + selected-location view), Random location button, Saved Locations, generic `ModuleCard`, minimal `AuthContext`/`useAuth`, and `useLocationData`; Globe now clears its marker when the selection is cleared. Confirmed the Section 5 claim; updated Sections 3.6, 4, 5, 6, 7 (items 8–10) and 8.
 
