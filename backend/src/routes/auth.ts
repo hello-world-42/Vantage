@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import cookieParser from "cookie-parser";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import {
   Router,
   type CookieOptions,
@@ -21,6 +21,11 @@ import {
 } from "../auth/googleOAuth.js";
 import { query } from "../db/client.js";
 import type { User } from "../db/schema.js";
+import {
+  bearerToken, clearSessionCookies, frontendUrl, issueCsrf, readCookie,
+  requireBrowserOrigin, requireCsrf, SESSION_COOKIE, setSessionCookie,
+  validCookieToken, verifySessionToken,
+} from "../auth/sessionSecurity.js";
 
 const BCRYPT_SALT_ROUNDS = 12;
 const GOOGLE_OAUTH_COOKIE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -62,6 +67,7 @@ type FindUserByEmail = (email: string) => Promise<User | null>;
 export interface AuthRouterOptions {
   insertUser?: InsertUser;
   findUserByEmail?: FindUserByEmail;
+  findUserById?: (userId: number) => Promise<User | null>;
   googleOAuth?: GoogleOAuthProvider;
   resolveGoogleUser?: (identity: GoogleIdentity) => Promise<User>;
 }
@@ -94,6 +100,14 @@ async function findUserByEmailInDatabase(email: string): Promise<User | null> {
   return result.rows[0] ?? null;
 }
 
+async function findUserByIdInDatabase(userId: number): Promise<User | null> {
+  const result = await query<User>(
+    `SELECT user_id, username, email, password_hash, google_sub, role, created_at
+     FROM users WHERE user_id = $1 LIMIT 1`, [userId],
+  );
+  return result.rows[0] ?? null;
+}
+
 function signUserToken(user: User): string {
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) {
@@ -111,6 +125,7 @@ function signUserToken(user: User): string {
     {
       algorithm: "HS256",
       expiresIn: expiresIn as SignOptions["expiresIn"],
+      jwtid: randomUUID(),
     },
   );
 }
@@ -179,15 +194,80 @@ function sanitizedUser(user: RegisteredUserRow) {
   };
 }
 
+function cookieMode(req: Request): boolean {
+  return req.get("X-Auth-Mode") === "cookie" || readCookie(req, SESSION_COOKIE) !== undefined;
+}
+
+function protectLoginOrRegister(req: Request, res: Response, next: NextFunction): void {
+  try {
+    const allowed = cookieMode(req) || req.get("X-CSRF-Token") !== undefined
+      ? requireCsrf(req, res, validCookieToken(req)) : requireBrowserOrigin(req, res);
+    if (allowed) next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function createAuthRouter(options: AuthRouterOptions = {}): Router {
   const router = Router();
   const insertUser = options.insertUser ?? insertUserIntoDatabase;
   const findUserByEmail = options.findUserByEmail ?? findUserByEmailInDatabase;
+  const findUserById = options.findUserById ?? findUserByIdInDatabase;
   const googleOAuth = options.googleOAuth ?? createGoogleOAuthProvider();
   const resolveGoogleUser =
     options.resolveGoogleUser ?? resolveGoogleUserFromDatabase;
 
-  router.post("/register", async (req, res, next) => {
+  router.use((_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
+
+  router.get("/csrf", (req, res, next) => {
+    try {
+      res.json({ csrfToken: issueCsrf(req, res, validCookieToken(req)) });
+    } catch (error) { next(error); }
+  });
+
+  router.get("/session", async (req, res, next) => {
+    try {
+      const token = validCookieToken(req);
+      const claims = token ? verifySessionToken(token) : null;
+      const user = claims ? await findUserById(claims.userId) : null;
+      if (!token || !user) {
+        clearSessionCookies(res);
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      res.json({ user: sanitizedUser(user), csrfToken: issueCsrf(req, res, token) });
+    } catch (error) { next(error); }
+  });
+
+  // Temporary localStorage/Bearer migration. A presented cookie always takes precedence.
+  router.post("/session", async (req, res, next) => {
+    try {
+      if (!requireCsrf(req, res, validCookieToken(req))) return;
+      const cookie = readCookie(req, SESSION_COOKIE);
+      const token = cookie !== undefined ? cookie : bearerToken(req);
+      const claims = token ? verifySessionToken(token) : null;
+      const user = claims ? await findUserById(claims.userId) : null;
+      if (!token || !user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      setSessionCookie(res, token);
+      res.json({ user: sanitizedUser(user), csrfToken: issueCsrf(req, res, token, true) });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/logout", (req, res, next) => {
+    try {
+      if (!requireCsrf(req, res, validCookieToken(req))) return;
+      clearSessionCookies(res);
+      res.status(204).send();
+    } catch (error) { next(error); }
+  });
+
+  router.post("/register", protectLoginOrRegister, async (req, res, next) => {
     const parsedInput = registrationSchema.safeParse(req.body);
     if (!parsedInput.success) {
       res.status(400).json({
@@ -222,7 +302,7 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
     }
   });
 
-  router.post("/login", async (req, res, next) => {
+  router.post("/login", protectLoginOrRegister, async (req, res, next) => {
     const parsedInput = loginSchema.safeParse(req.body);
     if (!parsedInput.success) {
       res.status(400).json({
@@ -245,6 +325,11 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
       }
 
       const token = signUserToken(user);
+      if (cookieMode(req)) {
+        setSessionCookie(res, token);
+        res.json({ user: sanitizedUser(user), csrfToken: issueCsrf(req, res, token, true) });
+        return;
+      }
       res.json({
         token,
         user: sanitizedUser(user),
@@ -296,11 +381,14 @@ export function createAuthRouter(options: AuthRouterOptions = {}): Router {
     }
 
     try {
+      const destination = frontendUrl().href;
       const identity = await googleOAuth.exchangeCode(code, codeVerifier);
       const user = await resolveGoogleUser(identity);
       const token = signUserToken(user);
 
-      res.json({ token, user: sanitizedUser(user) });
+      setSessionCookie(res, token);
+      issueCsrf(req, res, token, true);
+      res.redirect(303, destination);
     } catch (error) {
       if (error instanceof GoogleAuthenticationError) {
         res.status(401).json({ error: "Google authentication failed" });

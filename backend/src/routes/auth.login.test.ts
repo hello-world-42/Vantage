@@ -64,7 +64,7 @@ test("POST /api/auth/login returns a token and sanitized user for valid credenti
     return user;
   });
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "  AAMIR@Example.com  ",
     password: "correct-password",
   });
@@ -86,7 +86,7 @@ test("POST /api/auth/login returns a token and sanitized user for valid credenti
 test("POST /api/auth/login signs JWT claims with the configured expiration", async () => {
   const app = createTestApp(async () => createUser());
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "aamir@example.com",
     password: "correct-password",
   });
@@ -101,7 +101,7 @@ test("POST /api/auth/login signs JWT claims with the configured expiration", asy
 test("POST /api/auth/login returns generic 401 for an incorrect password", async () => {
   const app = createTestApp(async () => createUser());
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "aamir@example.com",
     password: "wrong-password",
   });
@@ -113,7 +113,7 @@ test("POST /api/auth/login returns generic 401 for an incorrect password", async
 test("POST /api/auth/login returns generic 401 for a nonexistent account", async () => {
   const app = createTestApp(async () => null);
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "missing@example.com",
     password: "some-password",
   });
@@ -133,7 +133,7 @@ test("POST /api/auth/login returns generic 401 for a Google-only account", async
     created_at: new Date("2026-10-29T12:00:00.000Z"),
   }));
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "google@example.com",
     password: "some-password",
   });
@@ -149,7 +149,7 @@ test("POST /api/auth/login rejects invalid input before querying the database", 
     return null;
   });
 
-  const response = await request(app).post("/api/auth/login").send({
+  const response = await request(app).post("/api/auth/login").set("Origin", "http://localhost:5173").send({
     email: "not-an-email",
   });
 
